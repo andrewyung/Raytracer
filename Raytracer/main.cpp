@@ -1,45 +1,56 @@
 #include "Raytracer.hpp"
 
-void populateGeometry(std::vector<Sphere>& spheres, std::vector<Plane>& planes)
+void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 {
-	Sphere s;
-	s.centre = { -350, 0, 0 };
-	s.radius = 10.0f;
-	for (size_t i{ 0 }; i < 7; i++)
+	for (size_t i{ 3 }; i < 7; i++)
 	{
-		s.centre = { s.centre.x + 80, 0, 0 };
-		s.radius += 10.0f;
+		Sphere s{ { -350 + (60.0f * i), 0, 0 }, 10.0f + (10.0f * i) };
+		s.setColour({ 0.1f, 0.1f * i, 0.1f });
 
-		spheres.push_back(s);
+		shapes.push_back(std::make_shared<Sphere>(s));
 	}
+	
+	Plane p0{ { 0, 0, -300 }, { 0, 0.5f, 1 } };
+	p0.setColour({ 0.1f, 0.5f, 0.5f });
 
-	Plane p;
-	p.point = { 0, 0, 0 };
-	p.normal = { 0, 1, 1 };
+	shapes.push_back(std::make_shared<Plane>(p0));
 
-	planes.push_back(p);
+	Plane p1{ { 0, 0, -300 }, { 0, -0.5f, 1 } };
+	p1.setColour({ 0.5f, 0.1f, 0.5f });
+	
+	shapes.push_back(std::make_shared<Plane>(p1));
+	
+	Triangle t0{ { 0, 100, -10 },
+				{ 20, 100, -10 },
+				{ 10, 80, -10 } };
+	t0.setColour({ 0.1f, 0.1f, 0.5f });
 
-	p.point = { 0, 0, 0 };
-	p.normal = { 0, -0.5, 1 };
+	shapes.push_back(std::make_shared<Triangle>(t0));
 
-	planes.push_back(p);
+	Triangle t1{ { 0, -100, -10 },
+				{ 20, -100, -10 },
+				{ 10, -80, -10 } };
+	t1.setColour({ 0.1f, 0.1f, 0.5f });
+
+	shapes.push_back(std::make_shared<Triangle>(t1));
+
 }
 
 int main()
 {
+	Camera camera;
+	camera.setEye({ -200,0,150 });
+	camera.setLookAt({ -100,0,0 });
+	camera.setFrustrumDistance(280.0f);
+	camera.computeUVW();
+
 	const std::size_t imageWidth{ 600 };
 	const std::size_t imageHeight{ 600 };
 
 	Ray ray;
-	ray.d = { 0, 0, -1 };
-	std::vector<Sphere> spheres;
-	std::vector<Plane> planes;
-	populateGeometry(spheres, planes);
-
-	Triangle triangle;
-	triangle.v0 = { 0,0,0 };
-	triangle.v1 = { 100,0,0 };
-	triangle.v2 = { 100,100,0 };
+	ray.o = camera.getmEye();
+	std::vector<std::shared_ptr<Shape>> shapes;
+	populateGeometry(shapes);
 
 	std::vector<Colour> image(imageWidth * imageHeight);
 
@@ -48,25 +59,32 @@ int main()
 		for (std::size_t x{ 0 }; x < imageWidth; ++x)
 		{
 			Colour pixel{ 0, 0, 0 };
+			/*
 			for (std::size_t py{ 0 }; py < 4; py++)
 			{
 				for (std::size_t px{ 0 }; px < 4; px++)
 				{
+				*/
+					float depth = FLT_MAX;
 					// Compute origin of ray. 
 					// -0.5 to get the corner of each pixel then go through each grid corner and add random range of grid section size (1 / 4)
-					float originX = (x - 0.5f * (imageWidth - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
-					float originY = (y - 0.5f * (imageHeight - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
+					//float originX = (x - 0.5f * (imageWidth - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
+					//float originY = (y - 0.5f * (imageHeight - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
+					float originX = (x - 0.5f * (imageWidth - 1.0f));
+					float originY = (y - 0.5f * (imageHeight - 1.0f));
 
-					ray.o = { originX, originY, 100.0f };
-
-					for (std::size_t i{ 0 }; i < spheres.size(); i++)
+					ray.d = glm::normalize((originX * camera.getmV()) + (originY * camera.getmU() - (camera.getFrustrumDistance() * camera.getmW())));
+					//std::cout << ray.d.x << " : " << ray.d.y << " : " << ray.d.z << std::endl;
+					for (std::size_t i{ 0 }; i < shapes.size(); i++)
 					{
-						pixel += intersectRayWithSphere(spheres[i], ray, Colour(0.5f, 0, 0));
+						float testDepth = shapes[i]->hit(ray);
+						if (testDepth < depth)
+						{
+							depth = testDepth;
+							pixel = shapes[i]->getColour();
+						}
 					}
-					for (std::size_t i{ 0 }; i < planes.size(); i++)
-					{
-						pixel += intersectRayWithPlane(planes[i], ray, Colour(0, 0.5f, 0));
-					}
+					/*
 				}
 			}
 
@@ -74,7 +92,7 @@ int main()
 			pixel.r /= 16.0f;
 			pixel.g /= 16.0f;
 			pixel.b /= 16.0f;
-
+			*/
 			image[x + y * imageHeight] = pixel;
 		}
 		std::cout << y << std::endl;
@@ -84,58 +102,162 @@ int main()
 	return 0;
 }
 
-Colour intersectRayWithSphere(Sphere s, Ray r, Colour colour)
+// ***** Camera function members *****
+Camera::Camera() :
+	mEye{ 0.0f, 0.0f, 100.0f },
+	mLookAt{ 0.0f },
+	mUp{ 0.0f, 1.0f, 0.0f },
+	mU{ 1.0f, 0.0f, 0.0f },
+	mV{ 0.0f, 1.0f, 0.0f },
+	mW{ 0.0f, 0.0f, 1.0f }
+{}
+
+void Camera::setEye(Point const& eye)
 {
-	Vector temp = r.o - s.centre;
-	float a = glm::dot(r.d, r.d);
-	float b = 2.0f * glm::dot(temp, r.d);
-	float c = glm::dot(temp, temp) - (s.radius * s.radius);
+	mEye = eye;
+}
+
+void Camera::setLookAt(Point const& lookAt)
+{
+	mLookAt = lookAt;
+}
+
+void Camera::setUpVector(Vector const& up)
+{
+	mUp = up;
+}
+
+void Camera::setFrustrumDistance(float frustumDistance)
+{
+	mFrustrumDistance = frustumDistance;
+}
+
+const float& Camera::getFrustrumDistance()
+{
+	return mFrustrumDistance;
+}
+
+void Camera::computeUVW()
+{
+	mW = (mEye - mLookAt) / glm::length(mEye - mLookAt);
+	mV = glm::cross(mW, mUp) / glm::length(glm::cross(mW, mUp));
+	mU = glm::cross(mW, mV);
+}
+
+const Point& Camera::getmEye()
+{
+	return mEye;
+}
+
+const Vector& Camera::getmW()
+{
+	return mW;
+}
+
+const Vector& Camera::getmV()
+{
+	return mV;
+}
+
+const Vector& Camera::getmU()
+{
+	return mU;
+}
+
+
+// ***** Shape function members *****
+Shape::Shape() : mColour{ 0, 0, 0 }
+{}
+
+void Shape::setColour(Colour const& col)
+{
+	mColour = col;
+}
+
+Colour Shape::getColour() const
+{
+	return mColour;
+}
+
+// ***** Sphere function members *****
+Sphere::Sphere(Point center, float radius) :
+	mCentre{ center }, mRadius{ radius }, mRadiusSqr{ radius * radius }
+{}
+
+float Sphere::hit(Ray const& ray) const
+{
+	Vector temp = ray.o - mCentre;
+	float a = glm::dot(ray.d, ray.d);
+	float b = 2.0f * glm::dot(temp, ray.d);
+	float c = glm::dot(temp, temp) - mRadiusSqr;
 	float disc = b * b - 4.0f * a * c;
+
+	float t = -b - glm::sqrt(disc);
 
 	if (disc < 0.0f)
 	{
-		return { 0, 0, 0 };
+		return FLT_MAX;
 	}
 
-	return colour;
+	return t;
 }
 
-Colour intersectRayWithPlane(Plane p, Ray r, Colour colour)
-{
-	float denom = glm::dot(p.normal, r.d);
-	if (abs(denom) < 0.000001f) return { 0, 0, 0 };
+// ***** Plane function members *****
+Plane::Plane(Point point, Vector normal) :
+	point{ point }, normal{ normal }
+{}
 
-	float t = glm::dot((p.point - r.o), p.normal) / denom;
+float Plane::hit(Ray const& ray) const
+{
+	float denom = glm::dot(normal, ray.d);
+	if (abs(denom) < 0.000001f) return FLT_MAX;
+
+	float t = glm::dot((point - ray.o), normal) / denom;
 	if (t > 0)
 	{
-		return colour;
+		return t;
 	}
 
-	return { 0, 0, 0 };
+	return FLT_MAX;
 }
 
 
-Colour intersectRayWithTriangle(Triangle t, Ray r, Colour colour)
+// ***** Triangle function members *****
+Triangle::Triangle(Point point1, Point point2, Point point3) :
+	p0{ point1 }, p1{ point2 }, p2{ point3 }
+{}
+
+float Triangle::hit(Ray const& ray) const
 {
-	Vector v0v1 = t.v0 - t.v1;
-	Vector v0v2 = t.v0 - t.v2;
-	Vector v0ray = t.v0 - r.o;
+	const double ep = 0.000001;
+	glm::vec3 v2v0 = p2 - p0;
+	glm::vec3 v1v0 = p1 - p0;
+	glm::vec3 rayv0 = ray.o - p0;
+	glm::vec3 pvec = glm::cross(ray.d, v2v0);
 
-	glm::mat3 dInv = glm::inverse(glm::mat3(v0v1, v0v2, r.d));
+	float det = glm::dot(v1v0, pvec);
+	float invDet = 1.0f / det;
 
-	double beta = glm::determinant(glm::mat3(v0ray, v0v2, r.d) * dInv);
+	float u = glm::dot(rayv0, pvec) * invDet;
 
-	if (beta < 0.0 || beta > 1) return { 0, 0, 0 };
+	if (u < 0 || u > 1)
+	{
+		return FLT_MAX;
+	}
 
-	double gamma = glm::determinant(glm::mat3(v0v1, v0ray, r.d) * dInv);
+	glm::vec3 qvec = glm::cross(rayv0, v1v0);
 
-	if (gamma < 0.0 || gamma > 1) return { 0, 0, 0 };
+	float v = glm::dot(ray.d, qvec) * invDet;
 
-	if (beta + gamma > 1.0) return { 0, 0, 0 };
+	if (v < 0 || u + v > 1)
+	{
+		return FLT_MAX;
+	}
 
-	return colour;
+	float t = glm::dot(v2v0, qvec) * invDet;
+
+	return t;
 }
-
 
 void saveToFile(std::string const& filename,
 	std::size_t width,
