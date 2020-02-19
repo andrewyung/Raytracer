@@ -38,8 +38,10 @@ void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 
 int main()
 {
+	AmbientLight ambLight{ Colour{ 0.2f, 0.2f, 0.2f } };
+
 	Camera camera;
-	camera.setEye({ -200,0,150 });
+	camera.setEye({ -175,0,130 });
 	camera.setLookAt({ -100,0,0 });
 	camera.setFrustrumDistance(280.0f);
 	camera.computeUVW();
@@ -77,11 +79,11 @@ int main()
 					//std::cout << ray.d.x << " : " << ray.d.y << " : " << ray.d.z << std::endl;
 					for (std::size_t i{ 0 }; i < shapes.size(); i++)
 					{
-						float testDepth = shapes[i]->hit(ray);
-						if (testDepth < depth)
+						std::pair<float, std::shared_ptr<Material>> testData = shapes[i]->hit(ray);
+						if (testData.first < depth)
 						{
-							depth = testDepth;
-							pixel = shapes[i]->getColour();
+							depth = testData.first;
+							pixel = ambLight.getColour() + testData.second->shade(ray.eval(depth));
 						}
 					}
 					/*
@@ -100,6 +102,21 @@ int main()
 
 	saveToFile("sphere.bmp", imageWidth, imageHeight, image);
 	return 0;
+}
+
+void Light::setColour(Colour colour)
+{
+	this->colour = colour;
+}
+
+void Light::setRadiance(float radiance)
+{
+	this->radiance = radiance;
+}
+
+Colour AmbientLight::getColour()
+{
+	return colour;
 }
 
 // ***** Camera function members *****
@@ -184,7 +201,7 @@ Sphere::Sphere(Point center, float radius) :
 	mCentre{ center }, mRadius{ radius }, mRadiusSqr{ radius * radius }
 {}
 
-float Sphere::hit(Ray const& ray) const
+std::pair<float, std::shared_ptr<Material>> Sphere::hit(Ray const& ray) const
 {
 	Vector temp = ray.o - mCentre;
 	float a = glm::dot(ray.d, ray.d);
@@ -196,10 +213,10 @@ float Sphere::hit(Ray const& ray) const
 
 	if (disc < 0.0f)
 	{
-		return FLT_MAX;
+		return std::make_pair(FLT_MAX, mMaterial);
 	}
 
-	return t;
+	return std::make_pair(t, mMaterial);
 }
 
 // ***** Plane function members *****
@@ -207,18 +224,23 @@ Plane::Plane(Point point, Vector normal) :
 	point{ point }, normal{ normal }
 {}
 
-float Plane::hit(Ray const& ray) const
+Colour Matte::shade(Point surfacePoint)
+{
+	return Colour();
+}
+
+std::pair<float, std::shared_ptr<Material>> Plane::hit(Ray const& ray) const
 {
 	float denom = glm::dot(normal, ray.d);
-	if (abs(denom) < 0.000001f) return FLT_MAX;
+	if (abs(denom) < 0.000001f) return std::make_pair(FLT_MAX, mMaterial);
 
 	float t = glm::dot((point - ray.o), normal) / denom;
 	if (t > 0)
 	{
-		return t;
+		return std::make_pair(t, mMaterial);
 	}
 
-	return FLT_MAX;
+	return std::make_pair(FLT_MAX, mMaterial);
 }
 
 
@@ -227,7 +249,7 @@ Triangle::Triangle(Point point1, Point point2, Point point3) :
 	p0{ point1 }, p1{ point2 }, p2{ point3 }
 {}
 
-float Triangle::hit(Ray const& ray) const
+std::pair<float, std::shared_ptr<Material>> Triangle::hit(Ray const& ray) const
 {
 	const double ep = 0.000001;
 	glm::vec3 v2v0 = p2 - p0;
@@ -242,7 +264,7 @@ float Triangle::hit(Ray const& ray) const
 
 	if (u < 0 || u > 1)
 	{
-		return FLT_MAX;
+		return std::make_pair(FLT_MAX, mMaterial);
 	}
 
 	glm::vec3 qvec = glm::cross(rayv0, v1v0);
@@ -251,12 +273,12 @@ float Triangle::hit(Ray const& ray) const
 
 	if (v < 0 || u + v > 1)
 	{
-		return FLT_MAX;
+		return std::make_pair(FLT_MAX, mMaterial);
 	}
 
 	float t = glm::dot(v2v0, qvec) * invDet;
 
-	return t;
+	return std::make_pair(t, mMaterial);
 }
 
 void saveToFile(std::string const& filename,
