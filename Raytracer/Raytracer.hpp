@@ -20,6 +20,38 @@ using Colour = glm::vec3;
 class Camera;
 class Shape;
 class Sampler;
+class Light;
+
+class Light
+{
+public:
+	Light(Colour colour = { 0,0,0 }) : colour(colour), radiance(1) {};
+
+	virtual ~Light() = default;
+
+	void setColour(Colour colour);
+	void setRadiance(float radiance);
+protected:
+	Colour colour;
+	float radiance = 1;
+};
+
+class PointLight : public Light
+{
+public:
+	PointLight();
+
+protected:
+	Point point;
+};
+
+class AmbientLight : public Light
+{
+public:
+	AmbientLight(Colour colour);
+
+	Colour getColour();
+};
 
 class Camera
 {
@@ -71,7 +103,7 @@ public:
 	virtual ~Shape() = default;
 
 	// if t computed is less than the t in sr, it and the color should be updated in sr
-	virtual float hit(Ray const& ray) const = 0;
+	virtual std::pair<float, std::shared_ptr<Material>> hit(Ray const& ray) const = 0;
 
 	void setColour(Colour const& col);
 
@@ -79,6 +111,22 @@ public:
 
 protected:
 	Colour mColour;
+	std::shared_ptr<Material> mMaterial;
+};
+
+class Material
+{
+public:
+	virtual ~Material() = default;
+
+	virtual Colour shade(Point surfacePoint) = 0;
+};
+
+
+class Matte : public Material
+{
+public:
+	Colour shade(Point surfacePoint);
 };
 
 // Concrete classes which we can construct and use in our ray tracer
@@ -88,7 +136,7 @@ class Sphere : public Shape
 public:
 	Sphere(Point center, float radius);
 
-	float hit(Ray const& ray) const;
+	std::pair<float, std::shared_ptr<Material>> hit(Ray const& ray) const;
 
 private:
 	Point mCentre;
@@ -101,7 +149,7 @@ class Plane : public Shape
 public:
 	Plane(Point point, Vector normal);
 
-	float hit(Ray const& ray) const;
+	std::pair<float, std::shared_ptr<Material>> hit(Ray const& ray) const;
 
 private:
 	Point point;
@@ -113,7 +161,7 @@ class Triangle : public Shape
 public:
 	Triangle(Point p0, Point p1, Point p2);
 
-	float hit(Ray const& ray) const;
+	std::pair<float, std::shared_ptr<Material>> hit(Ray const& ray) const;
 
 private:
 	Point p0, p1, p2;
@@ -127,7 +175,3 @@ void saveToFile(std::string const& filename,
 void populateGeometry(std::vector<Shape>& shapes);
 
 float randomRange(float min, float max);
-
-float intersectRayWithSphere(Sphere s, Ray r);
-float intersectRayWithPlane(Plane p, Ray r);
-float intersectRayWithTriangle(Triangle triangle, Ray ray);
