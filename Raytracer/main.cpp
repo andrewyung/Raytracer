@@ -15,19 +15,20 @@ void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 		s.setMaterial(matteMatRed);
 		shapes.push_back(std::make_shared<Sphere>(s));
 	}
-	/*
-	Plane p0{ { 0, 0, -300 }, { 0, 0.5f, 1 } };
+	
+	Plane p0{ { 0, 0, -300 }, { 0, 0, 1 } };
 	p0.setMaterial(matteMatGreen);
 	p0.setColour({ 0.1f, 0.5f, 0.5f });
 
 	shapes.push_back(std::make_shared<Plane>(p0));
 
-	Plane p1{ { 0, 0, -300 }, { 0, -0.5f, 1 } };
+	Plane p1{ { 0, -50, 0 }, { 0.1f, 1, 0.05f } };
 	p1.setMaterial(matteMatBlue);
 	p1.setColour({ 0.5f, 0.1f, 0.5f });
 	
 	shapes.push_back(std::make_shared<Plane>(p1));
 	
+	/*
 	Triangle t0{ { 0, 100, -10 },
 				{ 20, 100, -10 },
 				{ 10, 80, -10 } };
@@ -51,11 +52,11 @@ int main()
 	std::shared_ptr<DirectionalLight> dirLight = std::make_shared<DirectionalLight>(DirectionalLight(Colour{ 1.0f, 1.0f, 1.0f }, glm::normalize(Vector{ 0.0f, 2.0f, 1.0f })));
 	dirLight->setRadiance(1.5f);
 
-	std::shared_ptr<PointLight> pointLight = std::make_shared<PointLight>(PointLight(Colour{ 1.0f, 1.0f, 1.0f }, Point{ -450.0f, 200.0f, 0.0f }));
-	pointLight->setRadiance(0.1f);
+	std::shared_ptr<PointLight> pointLight = std::make_shared<PointLight>(PointLight(Colour{ 1.0f, 1.0f, 1.0f }, Point{ -450.0f, 200.0f, 100.0f }));
+	pointLight->setRadiance(0.003f);
 
 	std::vector<std::shared_ptr<Light>> lights;
-	lights.push_back(dirLight);
+	//lights.push_back(dirLight);
 	lights.push_back(pointLight);
 
 	AmbientLight ambLight{ Colour{ 0.1f, 0.1f, 0.1f } };
@@ -136,7 +137,7 @@ float Light::getRadiance(SurfaceData sd)
 PointLight::PointLight(Colour colour, Point point) : Light(colour), point(point) {}
 float PointLight::getRadiance(SurfaceData sd)
 {
-	return radiance * glm::clamp(glm::distance(sd.intersection, point) * 0.0001f, 0.0f, 1.0f);
+	return radiance * glm::clamp(glm::distance(sd.intersection, point), 0.0f, 1.0f);
 }
 Vector PointLight::getDirection(SurfaceData sd)
 {
@@ -264,11 +265,27 @@ Colour Matte::shade(Ray& const ray, SurfaceData& const surfaceData)
 			L += diffuseColour * glm::one_over_pi<float>() *
 				(*surfaceData.lights)[i]->getColour() * (*surfaceData.lights)[i]->getRadiance(surfaceData) *
 				nDotWi;
+			L += specular(-glm::normalize(wi), -ray.d, surfaceData);
 		}
 	}
 	L.x = glm::clamp<float>(L.x, 0, 1);
 	L.y = glm::clamp<float>(L.y, 0, 1);
 	L.z = glm::clamp<float>(L.z, 0, 1);
+
+	return L;
+}
+
+Colour Matte::specular(Vector wi, Vector camDir, SurfaceData& const surfaceData)
+{
+	Vector r = glm::reflect(wi, surfaceData.normal);
+
+	float vDotr = glm::dot(r, camDir);
+
+	Colour L{ 0,0,0 };
+	if (vDotr > 0.0)
+	{
+		L = Colour( specularCoefficient * glm::pow(vDotr, specularExp) );
+	}
 
 	return L;
 }

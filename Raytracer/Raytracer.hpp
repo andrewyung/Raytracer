@@ -158,6 +158,11 @@ class Matte : public Material
 public:
 	Matte(Colour diffuseColour);
 	Colour shade(Ray& const ray, SurfaceData& const surfaceData);
+
+	Colour specular(Vector wi, Vector camDir, SurfaceData& const surfaceData);
+protected:
+	float specularExp = 10.0f;
+	float specularCoefficient = 0.2f;
 };
 
 // Concrete classes which we can construct and use in our ray tracer
