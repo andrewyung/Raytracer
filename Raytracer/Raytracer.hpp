@@ -33,9 +33,9 @@ public:
 
 	Colour getColour();
 	void setRadiance(float radiance);
-	virtual float getRadiance([[maybe_unused]] SurfaceData sd);
-	virtual Vector getDirection([[maybe_unused]] SurfaceData sd);
-	
+	virtual float getRadiance([[maybe_unused]] SurfaceData& const sd);
+	virtual Vector getDirection([[maybe_unused]] SurfaceData& const sd);
+	virtual Point getPoint([[maybe_unused]] SurfaceData& const sd);
 protected:
 	Colour colour;
 	float radiance;
@@ -46,8 +46,9 @@ class PointLight : public Light
 public:
 	PointLight(Colour colour = { 0,0,0 }, Point point = { 0,0,0 });
 
-	float getRadiance([[maybe_unused]] SurfaceData sd);
-	Vector getDirection([[maybe_unused]] SurfaceData sd) override;
+	float getRadiance([[maybe_unused]] SurfaceData& const sd);
+	Vector getDirection([[maybe_unused]] SurfaceData& const sd);
+	Point getPoint([[maybe_unused]] SurfaceData& const sd);
 protected:
 	Point point;
 };
@@ -56,7 +57,8 @@ class DirectionalLight : public Light
 {
 public:
 	DirectionalLight(Colour colour = { 0,0,0 }, Vector direction = { 0,0,0 });
-	Vector getDirection([[maybe_unused]] SurfaceData sd) override;
+	Vector getDirection([[maybe_unused]] SurfaceData& const sd);
+	Point getPoint([[maybe_unused]] SurfaceData& const sd);
 protected:
 	Vector direction;
 };
@@ -66,7 +68,7 @@ class AmbientLight : public Light
 public:
 	AmbientLight(Colour colour);
 
-	Vector getDirection([[maybe_unused]] SurfaceData sd) override;
+	Vector getDirection([[maybe_unused]] SurfaceData& const sd);
 };
 
 class Camera
@@ -97,7 +99,7 @@ protected:
 	Point mLookAt;
 	Point mUp;
 	Vector mU, mV, mW;
-	float mFrustrumDistance = 100;
+	float mFrustrumDistance = 100.0f;
 };
 
 struct Ray
@@ -118,6 +120,8 @@ struct SurfaceData
 	Vector normal{ 0,0,0 };
 	float t = FLT_MAX;
 	Point intersection{ 0,0,0 };
+	bool shadowed = false;
+	float ambientOcclusion = 1;
 	std::shared_ptr<std::vector<std::shared_ptr<Light>>> lights;
 	std::shared_ptr<Light> ambient;
 };

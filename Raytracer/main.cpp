@@ -1,5 +1,15 @@
 #include "Raytracer.hpp"
-
+Point map_samples_to_hemisphere(Point samplePoint, const float e) {
+	float cos_phi = cos(2.0 * glm::pi<float>() * samplePoint.x);
+	float sin_phi = sin(2.0 * glm::pi<float>() * samplePoint.x);
+	float cos_theta = pow((1.0 - samplePoint.y), 1.0 / (e + 1.0));
+	float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+	float pu = sin_theta * cos_phi;
+	float pv = sin_theta * sin_phi;
+	float pw = cos_theta;
+	
+	return Point(pu, pv, pw);
+}
 void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 {
 	std::shared_ptr<Matte> matteMatRed = std::make_shared<Matte>(Matte{ Colour{1.0f, 0.4f, 0.2f} });
@@ -10,13 +20,13 @@ void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 
 	for (size_t i{ 3 }; i < 6; i++)
 	{
-		Sphere s{ { -350 + (60.0f * i), 0, 0 }, 10.0f + (10.0f * i) };
+		Sphere s{ { -350 + (60.0f * i), 10.0f * i, -150.0f + 30.0f * i }, 10.0f + (10.0f * i) };
 		s.setColour({ 0.1f, 0.1f * i, 0.1f });
 		s.setMaterial(matteMatRed);
 		shapes.push_back(std::make_shared<Sphere>(s));
 	}
 	
-	Plane p0{ { 0, 0, -300 }, { 0, 0, 1 } };
+	Plane p0{ { 0, 0, -500 }, { -1, 0, 1 } };
 	p0.setMaterial(matteMatGreen);
 	p0.setColour({ 0.1f, 0.5f, 0.5f });
 
@@ -60,6 +70,7 @@ int main()
 	lights.push_back(pointLight);
 
 	AmbientLight ambLight{ Colour{ 0.1f, 0.1f, 0.1f } };
+	int ambientOccSamples = 8;
 
 	Camera camera; 
 	camera.setEye({ -175,0,130 });
@@ -100,13 +111,40 @@ int main()
 
 					ray.d = glm::normalize((originX * camera.getmV()) + (originY * camera.getmU() - (camera.getFrustrumDistance() * camera.getmW())));
 					
+					bool hit = false;
 					//std::cout << ray.d.x << " : " << ray.d.y << " : " << ray.d.z << std::endl;
 					for (std::size_t i{ 0 }; i < shapes.size(); i++)
 					{
 						if (shapes[i]->hit(ray, sd))
 						{
-							pixel = sd.material->shade(ray, sd);
+							hit = true;
 						}
+					}
+					if (hit)
+					{
+						Ray shadowRay;
+						size_t numLights = sd.lights->size();
+
+						SurfaceData temp;
+						// Shadows
+						for (std::size_t i{ 0 }; i < shapes.size(); i++)
+						{
+							for (size_t k{ 0 }; k < numLights; ++k)
+							{
+								temp.t = glm::distance(sd.intersection, (*sd.lights)[k]->getPoint(sd)) - 0.01f;
+
+								shadowRay.d = -glm::normalize((*sd.lights)[k]->getDirection(sd));
+								shadowRay.o = (*sd.lights)[k]->getPoint(sd);
+
+								if (shapes[i]->hit(shadowRay, temp))
+								{
+									sd.shadowed = true;
+									break;
+								}
+							}
+						}
+
+						pixel = sd.material->shade(ray, sd);
 					}
 					/*
 				}
@@ -125,44 +163,64 @@ int main()
 	saveToFile("sphere.bmp", imageWidth, imageHeight, image);
 	return 0;
 }
+
+// Light
 Light::Light(Colour colour) : colour(colour), radiance(1) {}
-Vector Light::getDirection(SurfaceData sd)
+Vector Light::getDirection(SurfaceData& const sd)
 {
 	return { 0,0,0 };
 }
-float Light::getRadiance(SurfaceData sd)
+float Light::getRadiance(SurfaceData& const sd)
 {
 	return radiance;
 }
-PointLight::PointLight(Colour colour, Point point) : Light(colour), point(point) {}
-float PointLight::getRadiance(SurfaceData sd)
-{
-	return radiance * glm::clamp(glm::distance(sd.intersection, point), 0.0f, 1.0f);
-}
-Vector PointLight::getDirection(SurfaceData sd)
-{
-	return point - sd.intersection;
-}
-
-AmbientLight::AmbientLight(Colour colour) : Light(colour) {}
-
-Vector AmbientLight::getDirection(SurfaceData sd)
+Point Light::getPoint(SurfaceData& const sd)
 {
 	return { 0,0,0 };
 }
-DirectionalLight::DirectionalLight(Colour colour, Vector direction) : Light(colour), direction(direction) {}
-Vector DirectionalLight::getDirection(SurfaceData sd)
-{	
-	return direction;
-}
-void Light::setRadiance(float radiance) 
+void Light::setRadiance(float radiance)
 {
 	this->radiance = radiance;
 }
-
 Colour Light::getColour()
 {
 	return colour;
+}
+
+// PointLight
+PointLight::PointLight(Colour colour, Point point) : Light(colour), point(point) {}
+float PointLight::getRadiance(SurfaceData& const sd)
+{
+	return radiance * glm::clamp(glm::distance(sd.intersection, point), 0.0f, 1.0f);
+}
+Vector PointLight::getDirection(SurfaceData& const sd)
+{
+	return point - sd.intersection;
+}
+Point PointLight::getPoint(SurfaceData& const sd)
+{
+	return point;
+}
+
+// AmbientLight
+AmbientLight::AmbientLight(Colour colour) : Light(colour) {}
+
+Vector AmbientLight::getDirection(SurfaceData& const sd)
+{
+	return { 0,0,0 };
+}
+
+// DirectionalLight
+DirectionalLight::DirectionalLight(Colour colour, Vector direction) : Light(colour), direction(direction) {}
+
+Vector DirectionalLight::getDirection(SurfaceData& const sd)
+{	
+	return direction;
+}
+
+Point DirectionalLight::getPoint(SurfaceData& const sd)
+{
+	return -direction * FLT_MAX;
 }
 
 // ***** Camera function members *****
@@ -252,20 +310,24 @@ Matte::Matte(Colour diffuseColour) : Material(diffuseColour) {}
 Colour Matte::shade(Ray& const ray, SurfaceData& const surfaceData)
 {
 	Vector wo = -ray.o;
-	Colour L = surfaceData.ambient->getColour() * diffuseColour;
+	Colour L = surfaceData.ambient->getColour() * diffuseColour * surfaceData.ambientOcclusion;
 	size_t numLights = surfaceData.lights->size();
 
-	for (size_t i{ 0 }; i < numLights; ++i)
+	if (!surfaceData.shadowed)
 	{
-		Vector wi = (*surfaceData.lights)[i]->getDirection(surfaceData);
-		float nDotWi = glm::dot(surfaceData.normal, wi);
-
-		if (nDotWi > 0.0f)
+		for (size_t i{ 0 }; i < numLights; ++i)
 		{
-			L += diffuseColour * glm::one_over_pi<float>() *
-				(*surfaceData.lights)[i]->getColour() * (*surfaceData.lights)[i]->getRadiance(surfaceData) *
-				nDotWi;
-			L += specular(-glm::normalize(wi), -ray.d, surfaceData);
+			Vector wi = (*surfaceData.lights)[i]->getDirection(surfaceData);
+
+			float nDotWi = glm::dot(surfaceData.normal, wi);
+
+			if (nDotWi > 0.0f)
+			{
+				L += diffuseColour * glm::one_over_pi<float>() *
+					(*surfaceData.lights)[i]->getColour() * (*surfaceData.lights)[i]->getRadiance(surfaceData) *
+					nDotWi;
+				L += specular(-glm::normalize(wi), -ray.d, surfaceData);
+			}
 		}
 	}
 	L.x = glm::clamp<float>(L.x, 0, 1);
