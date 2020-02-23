@@ -1,15 +1,6 @@
 #include "Raytracer.hpp"
-Point map_samples_to_hemisphere(Point samplePoint, const float e) {
-	float cos_phi = cos(2.0 * glm::pi<float>() * samplePoint.x);
-	float sin_phi = sin(2.0 * glm::pi<float>() * samplePoint.x);
-	float cos_theta = pow((1.0 - samplePoint.y), 1.0 / (e + 1.0));
-	float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
-	float pu = sin_theta * cos_phi;
-	float pv = sin_theta * sin_phi;
-	float pw = cos_theta;
-	
-	return Point(pu, pv, pw);
-}
+
+
 void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 {
 	std::shared_ptr<Matte> matteMatRed = std::make_shared<Matte>(Matte{ Colour{1.0f, 0.4f, 0.2f} });
@@ -18,43 +9,42 @@ void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
 
 	std::shared_ptr<Matte> matteMatBlue = std::make_shared<Matte>(Matte{ Colour{0.2f, 0.4f, 1.0f} });
 
-	for (size_t i{ 3 }; i < 6; i++)
+	for (size_t i{ 3 }; i < 7; i++)
 	{
 		Sphere s{ { -350 + (60.0f * i), 10.0f * i, -150.0f + 30.0f * i }, 10.0f + (10.0f * i) };
-		s.setColour({ 0.1f, 0.1f * i, 0.1f });
+		s.setColour({ 0.15f, 0.1f * i, 0.15f });
 		s.setMaterial(matteMatRed);
 		shapes.push_back(std::make_shared<Sphere>(s));
 	}
 	
-	Plane p0{ { 0, 0, -500 }, { -1, 0, 1 } };
+	Plane p0{ { 0, 0, -500 }, glm::normalize(Vector{ -1, 0, 1 }) };
 	p0.setMaterial(matteMatGreen);
 	p0.setColour({ 0.1f, 0.5f, 0.5f });
 
-	shapes.push_back(std::make_shared<Plane>(p0));
+	//shapes.push_back(std::make_shared<Plane>(p0));
 
-	Plane p1{ { 0, -50, 0 }, { 0.1f, 1, 0.05f } };
+	Plane p1{ { 0, -50, 0 }, glm::normalize(Vector{ 0.0f, 1, 0.0f }) };
 	p1.setMaterial(matteMatBlue);
 	p1.setColour({ 0.5f, 0.1f, 0.5f });
 	
 	shapes.push_back(std::make_shared<Plane>(p1));
 	
-	/*
-	Triangle t0{ { 0, 100, -10 },
-				{ 20, 100, -10 },
-				{ 10, 80, -10 } };
+
+	Triangle t0{ { 400, -100, 200 },
+				{ 600, -100, 200 },
+				{ 500, 400, 200 } };
 	t0.setColour({ 0.1f, 0.1f, 0.5f });
-	t0.setMaterial(matteMatRed);
+	t0.setMaterial(matteMatGreen);
 
 	shapes.push_back(std::make_shared<Triangle>(t0));
-
+	
 	Triangle t1{ { 0, -100, -10 },
-				{ 20, -100, -10 },
-				{ 10, -80, -10 } };
-	t1.setColour({ 0.1f, 0.1f, 0.5f });
-	t1.setMaterial(matteMatRed);
+				{ 200, -100, -10 },
+				{ 100, 400, -10 } };
+	t1.setMaterial(matteMatGreen);
 
 	shapes.push_back(std::make_shared<Triangle>(t1));
-	*/
+	
 }
 
 int main()
@@ -62,7 +52,7 @@ int main()
 	std::shared_ptr<DirectionalLight> dirLight = std::make_shared<DirectionalLight>(DirectionalLight(Colour{ 1.0f, 1.0f, 1.0f }, glm::normalize(Vector{ 0.0f, 2.0f, 1.0f })));
 	dirLight->setRadiance(1.5f);
 
-	std::shared_ptr<PointLight> pointLight = std::make_shared<PointLight>(PointLight(Colour{ 1.0f, 1.0f, 1.0f }, Point{ -450.0f, 200.0f, 100.0f }));
+	std::shared_ptr<PointLight> pointLight = std::make_shared<PointLight>(PointLight(Colour{ 1.0f, 1.0f, 1.0f }, Point{ 450.0f, 400.0f, 400.0f }));
 	pointLight->setRadiance(0.003f);
 
 	std::vector<std::shared_ptr<Light>> lights;
@@ -72,25 +62,21 @@ int main()
 	AmbientLight ambLight{ Colour{ 0.1f, 0.1f, 0.1f } };
 	int ambientOccSamples = 8;
 
-	Camera camera; 
-	camera.setEye({ -175,0,130 });
-	camera.setLookAt({ -100,0,0 });
-	camera.setFrustrumDistance(280.0f);
+	FishEye camera; 
+	camera.setEye({ 0,0,300 });
+	camera.setLookAt({ 0,0,-100 });
+	camera.setFrustrumDistance(150.0f);
 	camera.computeUVW();
 
-	const std::size_t imageWidth{ 600 };
-	const std::size_t imageHeight{ 600 };
-
-	Ray ray;
-	ray.o = camera.getmEye();
 	std::vector<std::shared_ptr<Shape>> shapes;
 	populateGeometry(shapes);
 
-	std::vector<Colour> image(imageWidth * imageHeight);
+	std::vector<Colour> image(camera.width * camera.height);
 
-	for (std::size_t y{ 0 }; y < imageHeight; ++y)
+	Vector rayDirTotal{ 0,0,0 };
+	for (std::size_t y{ 0 }; y < camera.height; ++y)
 	{
-		for (std::size_t x{ 0 }; x < imageWidth; ++x)
+		for (std::size_t x{ 0 }; x < camera.width; ++x)
 		{
 			Colour pixel{ 0, 0, 0 };
 			/*
@@ -104,13 +90,11 @@ int main()
 					sd.lights = std::make_shared<std::vector<std::shared_ptr<Light>>>(lights);
 					// Compute origin of ray. 
 					// -0.5 to get the corner of each pixel then go through each grid corner and add random range of grid section size (1 / 4)
-					//float originX = (x - 0.5f * (imageWidth - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
-					//float originY = (y - 0.5f * (imageHeight - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
-					float originX = (x - 0.5f * (imageWidth - 1.0f));
-					float originY = (y - 0.5f * (imageHeight - 1.0f));
-
-					ray.d = glm::normalize((originX * camera.getmV()) + (originY * camera.getmU() - (camera.getFrustrumDistance() * camera.getmW())));
+					//float originX = (x - 0.5f * (camera.width - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
+					//float originY = (y - 0.5f * (camera.height - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
 					
+					Ray ray = camera.calculateRay(x, y);
+					rayDirTotal += ray.d;
 					bool hit = false;
 					//std::cout << ray.d.x << " : " << ray.d.y << " : " << ray.d.z << std::endl;
 					for (std::size_t i{ 0 }; i < shapes.size(); i++)
@@ -143,8 +127,7 @@ int main()
 								}
 							}
 						}
-
-						pixel = sd.material->shade(ray, sd);
+						pixel += sd.material->shade(ray, sd); 
 					}
 					/*
 				}
@@ -155,12 +138,14 @@ int main()
 			pixel.g /= 16.0f;
 			pixel.b /= 16.0f;
 			*/
-			image[x + y * imageHeight] = pixel;
+			image[x + y * camera.height] = pixel;
 		}
-		std::cout << y << std::endl;
+		std::cout << y << " : " << std::endl;
 	}
+	rayDirTotal = glm::normalize(rayDirTotal);
+	std::cout << rayDirTotal.x << " : " << rayDirTotal.x << " : " << rayDirTotal.z << std::endl;
 
-	saveToFile("sphere.bmp", imageWidth, imageHeight, image);
+	saveToFile("sphere.bmp", camera.width, camera.height, image);
 	return 0;
 }
 
@@ -233,6 +218,17 @@ Camera::Camera() :
 	mW{ 0.0f, 0.0f, 1.0f }
 {}
 
+Ray Camera::calculateRay(int x, int y)
+{
+	Ray ray;
+	ray.o = getmEye();
+	float originX = (x - 0.5f * (width - 1.0f));
+	float originY = (y - 0.5f * (height - 1.0f));
+	ray.d = glm::normalize((originX * getmV()) + (originY * getmU() - (getFrustrumDistance() * getmW())));
+	
+	return ray;
+}
+
 void Camera::setEye(Point const& eye)
 {
 	mEye = eye;
@@ -260,9 +256,9 @@ const float& Camera::getFrustrumDistance()
 
 void Camera::computeUVW()
 {
-	mW = (mEye - mLookAt) / glm::length(mEye - mLookAt);
-	mV = glm::cross(mW, mUp) / glm::length(glm::cross(mW, mUp));
-	mU = glm::cross(mW, mV);
+	mW = glm::normalize(mEye - mLookAt);
+	mV = glm::normalize(glm::cross(mW, mUp));
+	mU = glm::normalize(glm::cross(mW, mV));
 }
 
 const Point& Camera::getmEye()
@@ -283,6 +279,38 @@ const Vector& Camera::getmV()
 const Vector& Camera::getmU()
 {
 	return mU;
+}
+
+Ray FishEye::calculateRay(int x, int y)
+{
+	Ray ray;
+	ray.o = getmEye();
+	ray.d = { 0,0,0 };
+
+	float xn = (2.0f / width) * (x - 0.5f * (width - 1.0f));
+	float yn = (2.0f / height) * (y - 0.5f * (height - 1.0f));
+	float r_squared = xn * xn + yn * yn;
+	//std::cout << xn << " : " << yn << std::endl;
+	if (r_squared <= 1.0f) {
+		float r = glm::sqrt(r_squared);
+		float psi = r * psi_max * 0.0174532925199432957f / 2;
+		float sin_psi = glm::sin(psi);
+		float cos_psi = glm::cos(psi);
+		float sin_alpha = yn / r;
+		float cos_alpha = xn / r;
+		Vector dir = (sin_psi * cos_alpha * mV) + 
+					(sin_psi * sin_alpha * mU) -
+					(cos_psi * mW);
+		ray.d = dir;
+		//std::cout << mU.x << " : " << mU.y << " : " << mU.z << std::endl;
+	}
+
+	return ray;
+}
+
+void FishEye::setFOV(float fov)
+{
+	psi_max = fov;
 }
 
 Material::Material(Colour diffuseColour) : diffuseColour(diffuseColour) {}
@@ -310,7 +338,7 @@ Matte::Matte(Colour diffuseColour) : Material(diffuseColour) {}
 Colour Matte::shade(Ray& const ray, SurfaceData& const surfaceData)
 {
 	Vector wo = -ray.o;
-	Colour L = surfaceData.ambient->getColour() * diffuseColour * surfaceData.ambientOcclusion;
+	Colour L = surfaceData.ambient->getColour() * diffuseColour;
 	size_t numLights = surfaceData.lights->size();
 
 	if (!surfaceData.shadowed)
@@ -396,7 +424,7 @@ Plane::Plane(Point point, Vector normal) :
 bool Plane::hit(Ray const& ray, SurfaceData& data) const
 {
 	float denom = glm::dot(normal, ray.d);
-	if (abs(denom) < 0.000001f) return false;
+	if (abs(denom) < 0.00001f) return false;
 
 	float t = glm::dot((point - ray.o), normal) / denom;
 	if (t > 0)
@@ -486,5 +514,5 @@ void saveToFile(std::string const& filename,
 
 float randomRange(float min, float max)
 {
-	return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+	return (static_cast <float> (rand()) / static_cast <float> (RAND_MAX) + min) * max;
 }

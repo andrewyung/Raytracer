@@ -1,7 +1,8 @@
 #pragma once
 
 #include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp >
+#include <glm/gtc/constants.hpp>
+#include <glm/gtx/transform.hpp>
 #include <limits>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -23,6 +24,7 @@ class Camera;
 class Shape;
 class Sampler;
 class Light;
+class Ray;
 struct SurfaceData;
 
 class Light
@@ -90,16 +92,31 @@ public:
 
 	const Point& getmEye();
 
+	virtual Ray calculateRay(int x, int y);
+
 	const Vector& getmW();
 	const Vector& getmV();
 	const Vector& getmU();
 	const float& getFrustrumDistance();
+
+	const int height = 600;
+	const int width = 600;
 protected:
 	Point mEye;
 	Point mLookAt;
 	Point mUp;
 	Vector mU, mV, mW;
-	float mFrustrumDistance = 100.0f;
+	float mFrustrumDistance = 90.0f;
+};
+
+class FishEye : public Camera
+{
+public:
+	Ray calculateRay(int x, int y);
+
+	void setFOV(float fov);
+protected:
+	float psi_max = 180.0f; //fov
 };
 
 struct Ray
@@ -121,7 +138,6 @@ struct SurfaceData
 	float t = FLT_MAX;
 	Point intersection{ 0,0,0 };
 	bool shadowed = false;
-	float ambientOcclusion = 1;
 	std::shared_ptr<std::vector<std::shared_ptr<Light>>> lights;
 	std::shared_ptr<Light> ambient;
 };
