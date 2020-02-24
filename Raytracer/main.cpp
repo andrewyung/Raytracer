@@ -79,22 +79,22 @@ int main()
 		for (std::size_t x{ 0 }; x < camera.width; ++x)
 		{
 			Colour pixel{ 0, 0, 0 };
-			/*
+			
+			// Jittered sampling
 			for (std::size_t py{ 0 }; py < 4; py++)
 			{
 				for (std::size_t px{ 0 }; px < 4; px++)
 				{
-				*/
 					SurfaceData sd;
 					sd.ambient = std::make_shared<Light>(ambLight);
 					sd.lights = std::make_shared<std::vector<std::shared_ptr<Light>>>(lights);
 					// Compute origin of ray. 
 					// -0.5 to get the corner of each pixel then go through each grid corner and add random range of grid section size (1 / 4)
-					//float originX = (x - 0.5f * (camera.width - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
-					//float originY = (y - 0.5f * (camera.height - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
+					float originX = (x - 0.5f * (camera.width - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
+					float originY = (y - 0.5f * (camera.height - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
 					
-					Ray ray = camera.calculateRay(x, y);
-					rayDirTotal += ray.d;
+					Ray ray = camera.calculateRay(originX, originY);
+
 					bool hit = false;
 					//std::cout << ray.d.x << " : " << ray.d.y << " : " << ray.d.z << std::endl;
 					for (std::size_t i{ 0 }; i < shapes.size(); i++)
@@ -129,7 +129,7 @@ int main()
 						}
 						pixel += sd.material->shade(ray, sd); 
 					}
-					/*
+					
 				}
 			}
 
@@ -137,13 +137,11 @@ int main()
 			pixel.r /= 16.0f;
 			pixel.g /= 16.0f;
 			pixel.b /= 16.0f;
-			*/
+			
 			image[x + y * camera.height] = pixel;
 		}
 		std::cout << y << " : " << std::endl;
 	}
-	rayDirTotal = glm::normalize(rayDirTotal);
-	std::cout << rayDirTotal.x << " : " << rayDirTotal.x << " : " << rayDirTotal.z << std::endl;
 
 	saveToFile("sphere.bmp", camera.width, camera.height, image);
 	return 0;
@@ -218,14 +216,12 @@ Camera::Camera() :
 	mW{ 0.0f, 0.0f, 1.0f }
 {}
 
-Ray Camera::calculateRay(int x, int y)
+Ray Camera::calculateRay(float x, float y)
 {
 	Ray ray;
 	ray.o = getmEye();
-	float originX = (x - 0.5f * (width - 1.0f));
-	float originY = (y - 0.5f * (height - 1.0f));
-	ray.d = glm::normalize((originX * getmV()) + (originY * getmU() - (getFrustrumDistance() * getmW())));
-	
+	ray.d = glm::normalize((static_cast<float>(x)* getmV()) + (static_cast<float>(y)* getmU() - (getFrustrumDistance() * getmW())));
+
 	return ray;
 }
 
@@ -281,14 +277,14 @@ const Vector& Camera::getmU()
 	return mU;
 }
 
-Ray FishEye::calculateRay(int x, int y)
+Ray FishEye::calculateRay(float x, float y)
 {
 	Ray ray;
 	ray.o = getmEye();
 	ray.d = { 0,0,0 };
 
-	float xn = (2.0f / width) * (x - 0.5f * (width - 1.0f));
-	float yn = (2.0f / height) * (y - 0.5f * (height - 1.0f));
+	float xn = (2.0f / width) * x;
+	float yn = (2.0f / height) * y;
 	float r_squared = xn * xn + yn * yn;
 	//std::cout << xn << " : " << yn << std::endl;
 	if (r_squared <= 1.0f) {

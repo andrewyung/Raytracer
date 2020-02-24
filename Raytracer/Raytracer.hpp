@@ -92,7 +92,7 @@ public:
 
 	const Point& getmEye();
 
-	virtual Ray calculateRay(int x, int y);
+	virtual Ray calculateRay(float x, float y);
 
 	const Vector& getmW();
 	const Vector& getmV();
@@ -112,7 +112,7 @@ protected:
 class FishEye : public Camera
 {
 public:
-	Ray calculateRay(int x, int y);
+	Ray calculateRay(float x, float y);
 
 	void setFOV(float fov);
 protected:
