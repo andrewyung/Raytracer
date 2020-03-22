@@ -418,94 +418,149 @@ Plane::Plane(Point point, Vector normal) :
 
 
 bool Plane::hit(Ray const& ray, SurfaceData& data) const
+void raytrace(int beginBlock, int endBlock, Camera const& camera, std::shared_ptr<World> world)
 {
-	float denom = glm::dot(normal, ray.d);
-	if (abs(denom) < 0.00001f) return false;
+    Point samplePoint{}, pixelPoint{};
+    atlas::math::Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
 
-	float t = glm::dot((point - ray.o), normal) / denom;
-	if (t > 0)
-	{
-		if (t < data.t)
-		{
-			data.normal = glm::normalize(normal);
-			data.t = t;
-			data.material = mMaterial;
-			data.intersection = ray.o + (ray.d * t);
+    float avg{ 1.0f / world->sampler->getNumSamples() };
 
-			return true;
-		}
-	}
+    for (int r{ beginBlock }; r < endBlock; ++r)
+    {
+        for (int c{ 0 }; c < world->width; ++c)
+        {
+            Colour pixelAverage{ 0, 0, 0 };
 
-	return false;
+            for (int j = 0; j < world->sampler->getNumSamples(); ++j)
+            {
+                ShadeRec trace_data{};
+                trace_data.world = world;
+                trace_data.t = std::numeric_limits<float>::max();
+                samplePoint = world->sampler->sampleUnitSquare();
+                pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
+                pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
+                camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
+
+                bool hit{};
+
+                for (auto obj : world->scene)
+                {
+                    hit |= obj->hit(ray, trace_data);
+                }
+
+                if (hit)
+                {
+                    pixelAverage += trace_data.material->shade(trace_data);
+                }
+            }
+
+            world->image[(r * world->height) + c] = {   pixelAverage.r * avg,
+                                                        pixelAverage.g * avg,
+                                                        pixelAverage.b * avg };
+
+        }
+        std::cout << r << std::endl;
+    }
 }
 
-
-// ***** Triangle function members *****
-Triangle::Triangle(Point point1, Point point2, Point point3) :
-	p0{ point1 }, p1{ point2 }, p2{ point3 }
-{}
-
-bool Triangle::hit(Ray const& ray, SurfaceData& data) const
+int main()
 {
-	const double ep = 0.000001;
-	glm::vec3 v2v0 = p2 - p0;
-	glm::vec3 v1v0 = p1 - p0;
-	glm::vec3 rayv0 = ray.o - p0;
-	glm::vec3 pvec = glm::cross(ray.d, v2v0);
+    using atlas::math::Point;
+    using atlas::math::Ray;
+    using atlas::math::Vector;
 
-	float det = glm::dot(v1v0, pvec);
-	float invDet = 1.0f / det;
+    std::shared_ptr<World> world{ std::make_shared<World>() };
 
-	float u = glm::dot(rayv0, pvec) * invDet;
+    world->width = 1000;
+    world->height = 1000;
+    world->background = { 0, 0, 0 };
+    world->sampler = std::make_shared<Random>(4, 83);
 
-	if (u < 0 || u > 1)
-	{
-		return false;
-	}
+    world->scene.push_back(
+        std::make_shared<Triangle>(Triangle{ Point{-300, 0, -300}, Point{300, 0, -300}, Point{0, 300, -300} }));
+    world->scene[0]->setMaterial(
+        std::make_shared<Matte>(0.50f, 0.05f, Colour{ 1, 0, 0 }));
+    world->scene[0]->setColour({ 1, 0, 0 });
 
-	glm::vec3 qvec = glm::cross(rayv0, v1v0);
+    std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
+    world->scene.push_back(
+        std::make_shared<Mesh>(Mesh{ optObjMesh.value(), "teapot" }));
 
-	float v = glm::dot(ray.d, qvec) * invDet;
+    world->ambient = std::make_shared<Ambient>();
+    world->lights.push_back(
+        std::make_shared<Directional>(Directional{ {0, 0, 1024} }));
 
-	if (v < 0 || u + v > 1)
-	{
-		return false;
-	}
+    world->ambient->setColour({ 1, 1, 1 });
+    world->ambient->scaleRadiance(0.05f);
 
-	float t = glm::dot(v2v0, qvec) * invDet;
+    world->lights[0]->setColour({ 1, 1, 1 });
+    world->lights[0]->scaleRadiance(4.0f);
+    
+    int numThreads = std::thread::hardware_concurrency();
+    std::vector <std::shared_ptr<std::thread>> threads;
 
-	if (t < data.t)
-	{
-		data.normal = glm::normalize(glm::cross(p0, p1));
-		data.t = t;
-		data.material = mMaterial;
-		data.intersection = ray.o + (ray.d * t);
+    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 100.0f };
 
-		return true;
-	}
-	return false;
-}
+    world->image = std::vector<Colour>(world->height * world->width, Colour{ 0,0,0 });
 
-void saveToFile(std::string const& filename,
-	std::size_t width,
-	std::size_t height,
-	std::vector<Colour> const& image)
-{
-	std::vector<unsigned char> data(image.size() * 3);
+    for (size_t i{ 0 }; i < numThreads; i++)
+    {
+        int columnUnitSize = world->width / numThreads;
+        int beginX = i * columnUnitSize;
+        int endX = beginX + columnUnitSize;
+        threads.push_back(std::make_shared<std::thread>(raytrace, beginX, endX, camera, world));
+    }
 
-	for (std::size_t i{ 0 }, k{ 0 }; i < image.size(); ++i, k += 3)
-	{
-		Colour pixel = image[i];
-		data[k + 0] = static_cast<unsigned char>(pixel.r * 255);
-		data[k + 1] = static_cast<unsigned char>(pixel.g * 255);
-		data[k + 2] = static_cast<unsigned char>(pixel.b * 255);
-	}
+    for (size_t i{ 0 }; i < threads.size(); i++)
+    {
+        threads[i]->join();
+    }
+    /*
+    Point samplePoint{}, pixelPoint{};
+    Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
 
-	stbi_write_bmp(filename.c_str(),
-		static_cast<int>(width),
-		static_cast<int>(height),
-		3,
-		data.data());
+    float avg{ 1.0f / world->sampler->getNumSamples() };
+
+    for (int r{ 0 }; r < world->height; ++r)
+    {
+        for (int c{ 0 }; c < world->width; ++c)
+        {
+            Colour pixelAverage{ 0, 0, 0 };
+
+            for (int j = 0; j < world->sampler->getNumSamples(); ++j)
+            {
+                ShadeRec trace_data{};
+                trace_data.world = world;
+                trace_data.t = std::numeric_limits<float>::max();
+                samplePoint = world->sampler->sampleUnitSquare();
+                pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
+                pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
+                camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
+
+                bool hit{};
+
+                for (auto obj : world->scene)
+                {
+                    hit |= obj->hit(ray, trace_data);
+                }
+
+                if (hit)
+                {
+                    pixelAverage += trace_data.material->shade(trace_data);
+                }
+            }
+
+            world->image.push_back({ pixelAverage.r * avg,
+                                    pixelAverage.g * avg,
+                                    pixelAverage.b * avg });
+
+        }
+        std::cout << r << std::endl;
+    */
+
+    saveToFile("raytrace.bmp", world->width, world->height, world->image);
+
+    return 0;
 }
 
 float randomRange(float min, float max)
