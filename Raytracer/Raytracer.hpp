@@ -27,22 +27,6 @@ class Light;
 class Ray;
 struct SurfaceData;
 
-class Light
-{
-public:
-	Light(Colour colour);
-	virtual ~Light() = default;
-
-	Colour getColour();
-	void setRadiance(float radiance);
-	virtual float getRadiance([[maybe_unused]] SurfaceData& const sd);
-	virtual Vector getDirection([[maybe_unused]] SurfaceData& const sd);
-	virtual Point getPoint([[maybe_unused]] SurfaceData& const sd);
-protected:
-	Colour colour;
-	float radiance;
-};
-
 class PointLight : public Light
 {
 public:
