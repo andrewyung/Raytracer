@@ -1,423 +1,685 @@
 #include "Raytracer.hpp"
 
+// ******* Function Member Implementation *******
 
-void populateGeometry(std::vector<std::shared_ptr<Shape>>& shapes)
+// ***** Image function members *****
+ImageTexture::ImageTexture(std::string const& imageFilePath)
 {
-	std::shared_ptr<Matte> matteMatRed = std::make_shared<Matte>(Matte{ Colour{1.0f, 0.4f, 0.2f} });
+    mImage = stbi_load(imageFilePath.c_str(),
+        &mWidth,
+        &mHeight,
+        &mChannels,
+        STBI_rgb_alpha);
 
-	std::shared_ptr<Matte> matteMatGreen = std::make_shared<Matte>(Matte{ Colour{0.2f, 1.0f, 0.2f} });
-
-	std::shared_ptr<Matte> matteMatBlue = std::make_shared<Matte>(Matte{ Colour{0.2f, 0.4f, 1.0f} });
-
-	for (size_t i{ 3 }; i < 7; i++)
-	{
-		Sphere s{ { -350 + (60.0f * i), 10.0f * i, -150.0f + 30.0f * i }, 10.0f + (10.0f * i) };
-		s.setColour({ 0.15f, 0.1f * i, 0.15f });
-		s.setMaterial(matteMatRed);
-		shapes.push_back(std::make_shared<Sphere>(s));
-	}
-	
-	Plane p0{ { 0, 0, -500 }, glm::normalize(Vector{ -1, 0, 1 }) };
-	p0.setMaterial(matteMatGreen);
-	p0.setColour({ 0.1f, 0.5f, 0.5f });
-
-	//shapes.push_back(std::make_shared<Plane>(p0));
-
-	Plane p1{ { 0, -50, 0 }, glm::normalize(Vector{ 0.0f, 1, 0.0f }) };
-	p1.setMaterial(matteMatBlue);
-	p1.setColour({ 0.5f, 0.1f, 0.5f });
-	
-	shapes.push_back(std::make_shared<Plane>(p1));
-	
-
-	Triangle t0{ { 400, -100, 200 },
-				{ 600, -100, 200 },
-				{ 500, 400, 200 } };
-	t0.setColour({ 0.1f, 0.1f, 0.5f });
-	t0.setMaterial(matteMatGreen);
-
-	shapes.push_back(std::make_shared<Triangle>(t0));
-	
-	Triangle t1{ { 0, -100, -10 },
-				{ 200, -100, -10 },
-				{ 100, 400, -10 } };
-	t1.setMaterial(matteMatGreen);
-
-	shapes.push_back(std::make_shared<Triangle>(t1));
-	
+    if (mImage)
+    {
+        mSet = true;
+    }
+    else
+    {
+        mSet = false;
+    }
 }
 
-int main()
+// ***** ImageTexture function members ******
+
+ImageTexture::~ImageTexture()
 {
-	std::shared_ptr<DirectionalLight> dirLight = std::make_shared<DirectionalLight>(DirectionalLight(Colour{ 1.0f, 1.0f, 1.0f }, glm::normalize(Vector{ 0.0f, 2.0f, 1.0f })));
-	dirLight->setRadiance(1.5f);
-
-	std::shared_ptr<PointLight> pointLight = std::make_shared<PointLight>(PointLight(Colour{ 1.0f, 1.0f, 1.0f }, Point{ 450.0f, 400.0f, 400.0f }));
-	pointLight->setRadiance(0.003f);
-
-	std::vector<std::shared_ptr<Light>> lights;
-	//lights.push_back(dirLight);
-	lights.push_back(pointLight);
-
-	AmbientLight ambLight{ Colour{ 0.1f, 0.1f, 0.1f } };
-	int ambientOccSamples = 8;
-
-	FishEye camera; 
-	camera.setEye({ 0,0,300 });
-	camera.setLookAt({ 0,0,-100 });
-	camera.setFrustrumDistance(150.0f);
-	camera.computeUVW();
-
-	std::vector<std::shared_ptr<Shape>> shapes;
-	populateGeometry(shapes);
-
-	std::vector<Colour> image(camera.width * camera.height);
-
-	Vector rayDirTotal{ 0,0,0 };
-	for (std::size_t y{ 0 }; y < camera.height; ++y)
-	{
-		for (std::size_t x{ 0 }; x < camera.width; ++x)
-		{
-			Colour pixel{ 0, 0, 0 };
-			
-			// Jittered sampling
-			for (std::size_t py{ 0 }; py < 4; py++)
-			{
-				for (std::size_t px{ 0 }; px < 4; px++)
-				{
-					SurfaceData sd;
-					sd.ambient = std::make_shared<Light>(ambLight);
-					sd.lights = std::make_shared<std::vector<std::shared_ptr<Light>>>(lights);
-					// Compute origin of ray. 
-					// -0.5 to get the corner of each pixel then go through each grid corner and add random range of grid section size (1 / 4)
-					float originX = (x - 0.5f * (camera.width - 1.0f)) - 0.5f + (px * 0.25f) + randomRange(0, 0.25f);
-					float originY = (y - 0.5f * (camera.height - 1.0f)) - 0.5f + (py * 0.25f) + randomRange(0, 0.25f);
-					
-					Ray ray = camera.calculateRay(originX, originY);
-
-					bool hit = false;
-					//std::cout << ray.d.x << " : " << ray.d.y << " : " << ray.d.z << std::endl;
-					for (std::size_t i{ 0 }; i < shapes.size(); i++)
-					{
-						if (shapes[i]->hit(ray, sd))
-						{
-							hit = true;
-						}
-					}
-					if (hit)
-					{
-						Ray shadowRay;
-						size_t numLights = sd.lights->size();
-
-						SurfaceData temp;
-						// Shadows
-						for (std::size_t i{ 0 }; i < shapes.size(); i++)
-						{
-							for (size_t k{ 0 }; k < numLights; ++k)
-							{
-								temp.t = glm::distance(sd.intersection, (*sd.lights)[k]->getPoint(sd)) - 0.01f;
-
-								shadowRay.d = -glm::normalize((*sd.lights)[k]->getDirection(sd));
-								shadowRay.o = (*sd.lights)[k]->getPoint(sd);
-
-								if (shapes[i]->hit(shadowRay, temp))
-								{
-									sd.shadowed = true;
-									break;
-								}
-							}
-						}
-						pixel += sd.material->shade(ray, sd); 
-					}
-					
-				}
-			}
-
-			// Average
-			pixel.r /= 16.0f;
-			pixel.g /= 16.0f;
-			pixel.b /= 16.0f;
-			
-			image[x + y * camera.height] = pixel;
-		}
-		std::cout << y << " : " << std::endl;
-	}
-
-	saveToFile("sphere.bmp", camera.width, camera.height, image);
-	return 0;
+    mSet = false;
+    stbi_image_free(mImage);
 }
 
-// Light
-Light::Light(Colour colour) : colour(colour), radiance(1) {}
-Vector Light::getDirection(SurfaceData& const sd)
+ColourAlpha ImageTexture::getColour(int x, int y)
 {
-	return { 0,0,0 };
-}
-float Light::getRadiance(SurfaceData& const sd)
-{
-	return radiance;
-}
-Point Light::getPoint(SurfaceData& const sd)
-{
-	return { 0,0,0 };
-}
-void Light::setRadiance(float radiance)
-{
-	this->radiance = radiance;
-}
-Colour Light::getColour()
-{
-	return colour;
+    if (mSet)
+    {
+        unsigned bytePerPixel = mChannels;
+        unsigned char* pixelOffset = mImage + (x + (mHeight * y)) * mChannels;
+        unsigned char r = pixelOffset[0];
+        unsigned char g = pixelOffset[1];
+        unsigned char b = pixelOffset[2];
+        unsigned char a = mChannels >= 4 ? pixelOffset[3] : 0xff;
+        return { r, g, b, a };
+    }
+    return { 0,0,0,0 };
 }
 
-// PointLight
-PointLight::PointLight(Colour colour, Point point) : Light(colour), point(point) {}
-float PointLight::getRadiance(SurfaceData& const sd)
-{
-	return radiance * glm::clamp(glm::distance(sd.intersection, point), 0.0f, 1.0f);
-}
-Vector PointLight::getDirection(SurfaceData& const sd)
-{
-	return point - sd.intersection;
-}
-Point PointLight::getPoint(SurfaceData& const sd)
-{
-	return point;
-}
-
-// AmbientLight
-AmbientLight::AmbientLight(Colour colour) : Light(colour) {}
-
-Vector AmbientLight::getDirection(SurfaceData& const sd)
-{
-	return { 0,0,0 };
-}
-
-// DirectionalLight
-DirectionalLight::DirectionalLight(Colour colour, Vector direction) : Light(colour), direction(direction) {}
-
-Vector DirectionalLight::getDirection(SurfaceData& const sd)
-{	
-	return direction;
-}
-
-Point DirectionalLight::getPoint(SurfaceData& const sd)
-{
-	return -direction * FLT_MAX;
-}
-
-// ***** Camera function members *****
-Camera::Camera() :
-	mEye{ 0.0f, 0.0f, 100.0f },
-	mLookAt{ 0.0f },
-	mUp{ 0.0f, 1.0f, 0.0f },
-	mU{ 1.0f, 0.0f, 0.0f },
-	mV{ 0.0f, 1.0f, 0.0f },
-	mW{ 0.0f, 0.0f, 1.0f }
+// ***** BoundingVolumeBox *****
+BoundingVolumeBox::BoundingVolumeBox(Vector const& startPoint)
+    : mXLeftPlane(Plane{ startPoint, {1,0,0} }), mXRightPlane(Plane{ startPoint, { 1,0,0 } }),
+      mYLeftPlane(Plane{ startPoint, {0,1,0} }), mYRightPlane(Plane{ startPoint, { 0,1,0 } }),
+      mZLeftPlane(Plane{ startPoint, {0,0,1} }), mZRightPlane(Plane{ startPoint, { 0,0,1 } })
 {}
 
-Ray Camera::calculateRay(float x, float y)
+void BoundingVolumeBox::addVolumePoint(Point const& point)
 {
-	Ray ray;
-	ray.o = getmEye();
-	ray.d = glm::normalize((static_cast<float>(x)* getmV()) + (static_cast<float>(y)* getmU() - (getFrustrumDistance() * getmW())));
+    if (point.x < mXLeftPlane.getPoint().x)
+    {
+        mXLeftPlane.setPoint(point);
+    }
+    if (point.x > mXRightPlane.getPoint().x)
+    {
+        mXRightPlane.setPoint(point);
+    }
 
-	return ray;
+    if (point.y < mYLeftPlane.getPoint().y)
+    {
+        mYLeftPlane.setPoint(point);
+    }
+    if (point.y > mYRightPlane.getPoint().y)
+    {
+        mYRightPlane.setPoint(point);
+    }
+
+    if (point.z < mZLeftPlane.getPoint().z)
+    {
+        mZLeftPlane.setPoint(point);
+    }
+    if (point.z > mZRightPlane.getPoint().z)
+    {
+        mZRightPlane.setPoint(point);
+    }
 }
 
-void Camera::setEye(Point const& eye)
+bool BoundingVolumeBox::intersects(atlas::math::Ray<Vector> const& ray)
 {
-	mEye = eye;
+    float xMin = mXLeftPlane.getPoint().x;
+    float xMax = mXRightPlane.getPoint().x;
+
+    float yMin = mYLeftPlane.getPoint().y;
+    float yMax = mYRightPlane.getPoint().y;
+
+    float zMin = mZLeftPlane.getPoint().z;
+    float zMax = mZRightPlane.getPoint().z;
+    ShadeRec sr;
+    Point hitPoint;
+
+    // Checks if ray hits any surface of cube
+    sr.t = std::numeric_limits<float>::max();
+    if (mXLeftPlane.hit(ray, sr))
+    {
+        hitPoint = ray.o + (ray.d * sr.t);
+        // Check if within bounds of cube face
+        if (hitPoint.y > yMin && hitPoint.y < yMax &&
+            hitPoint.z > zMin && hitPoint.z < zMax) return true;
+    }
+    sr.t = std::numeric_limits<float>::max();
+    if (mXRightPlane.hit(ray, sr))
+    {
+        hitPoint = ray.o + (ray.d * sr.t);
+        if (hitPoint.y > yMin && hitPoint.y < yMax &&
+            hitPoint.z > zMin && hitPoint.z < zMax) return true;
+    }
+    sr.t = std::numeric_limits<float>::max();
+    if (mYLeftPlane.hit(ray, sr))
+    {
+        hitPoint = ray.o + (ray.d * sr.t);
+        if (hitPoint.x > xMin && hitPoint.x < xMax &&
+            hitPoint.z > zMin && hitPoint.z < zMax) return true;
+    }
+    sr.t = std::numeric_limits<float>::max();
+    if (mYRightPlane.hit(ray, sr))
+    {
+        hitPoint = ray.o + (ray.d * sr.t);
+        if (hitPoint.x > xMin && hitPoint.x < xMax &&
+            hitPoint.z > zMin && hitPoint.z < zMax) return true;
+    }
+    sr.t = std::numeric_limits<float>::max();
+    if (mZLeftPlane.hit(ray, sr))
+    {
+        hitPoint = ray.o + (ray.d * sr.t);
+        if (hitPoint.x > xMin && hitPoint.x < xMax &&
+            hitPoint.y > yMin && hitPoint.y < yMax) return true;
+    }
+    sr.t = std::numeric_limits<float>::max();
+    if (mZRightPlane.hit(ray, sr))
+    {
+        hitPoint = ray.o + (ray.d * sr.t);
+        if (hitPoint.x > xMin && hitPoint.x < xMax &&
+            hitPoint.y > yMin && hitPoint.y < yMax) return true;
+    }
+
+    return false;
 }
 
-void Camera::setLookAt(Point const& lookAt)
-{
-	mLookAt = lookAt;
-}
-
-void Camera::setUpVector(Vector const& up)
-{
-	mUp = up;
-}
-
-void Camera::setFrustrumDistance(float frustumDistance)
-{
-	mFrustrumDistance = frustumDistance;
-}
-
-const float& Camera::getFrustrumDistance()
-{
-	return mFrustrumDistance;
-}
-
-void Camera::computeUVW()
-{
-	mW = glm::normalize(mEye - mLookAt);
-	mV = glm::normalize(glm::cross(mW, mUp));
-	mU = glm::normalize(glm::cross(mW, mV));
-}
-
-const Point& Camera::getmEye()
-{
-	return mEye;
-}
-
-const Vector& Camera::getmW()
-{
-	return mW;
-}
-
-const Vector& Camera::getmV()
-{
-	return mV;
-}
-
-const Vector& Camera::getmU()
-{
-	return mU;
-}
-
-Ray FishEye::calculateRay(float x, float y)
-{
-	Ray ray;
-	ray.o = getmEye();
-	ray.d = { 0,0,0 };
-
-	float xn = (2.0f / width) * x;
-	float yn = (2.0f / height) * y;
-	float r_squared = xn * xn + yn * yn;
-	//std::cout << xn << " : " << yn << std::endl;
-	if (r_squared <= 1.0f) {
-		float r = glm::sqrt(r_squared);
-		float psi = r * psi_max * 0.0174532925199432957f / 2;
-		float sin_psi = glm::sin(psi);
-		float cos_psi = glm::cos(psi);
-		float sin_alpha = yn / r;
-		float cos_alpha = xn / r;
-		Vector dir = (sin_psi * cos_alpha * mV) + 
-					(sin_psi * sin_alpha * mU) -
-					(cos_psi * mW);
-		ray.d = dir;
-		//std::cout << mU.x << " : " << mU.y << " : " << mU.z << std::endl;
-	}
-
-	return ray;
-}
-
-void FishEye::setFOV(float fov)
-{
-	psi_max = fov;
-}
-
-Material::Material(Colour diffuseColour) : diffuseColour(diffuseColour) {}
 // ***** Shape function members *****
-Shape::Shape() : mColour({ 0, 0, 0 })
+Shape::Shape() : mColour{ 0, 0, 0 }
 {}
-
-void Shape::setMaterial(std::shared_ptr<Material> material)
-{
-	mMaterial = material;
-}
 
 void Shape::setColour(Colour const& col)
 {
-	mColour = col;
+    mColour = col;
 }
 
 Colour Shape::getColour() const
 {
-	return mColour;
+    return mColour;
 }
 
-Matte::Matte(Colour diffuseColour) : Material(diffuseColour) {}
-
-Colour Matte::shade(Ray& const ray, SurfaceData& const surfaceData)
+void Shape::setMaterial(std::shared_ptr<Material> const& material)
 {
-	Vector wo = -ray.o;
-	Colour L = surfaceData.ambient->getColour() * diffuseColour;
-	size_t numLights = surfaceData.lights->size();
-
-	if (!surfaceData.shadowed)
-	{
-		for (size_t i{ 0 }; i < numLights; ++i)
-		{
-			Vector wi = (*surfaceData.lights)[i]->getDirection(surfaceData);
-
-			float nDotWi = glm::dot(surfaceData.normal, wi);
-
-			if (nDotWi > 0.0f)
-			{
-				L += diffuseColour * glm::one_over_pi<float>() *
-					(*surfaceData.lights)[i]->getColour() * (*surfaceData.lights)[i]->getRadiance(surfaceData) *
-					nDotWi;
-				L += specular(-glm::normalize(wi), -ray.d, surfaceData);
-			}
-		}
-	}
-	L.x = glm::clamp<float>(L.x, 0, 1);
-	L.y = glm::clamp<float>(L.y, 0, 1);
-	L.z = glm::clamp<float>(L.z, 0, 1);
-
-	return L;
+    mMaterial = material;
 }
 
-Colour Matte::specular(Vector wi, Vector camDir, SurfaceData& const surfaceData)
+std::shared_ptr<Material> Shape::getMaterial() const
 {
-	Vector r = glm::reflect(wi, surfaceData.normal);
+    return mMaterial;
+}
 
-	float vDotr = glm::dot(r, camDir);
+// ***** Sampler function members *****
+Sampler::Sampler(int numSamples, int numSets) :
+    mNumSamples{ numSamples }, mNumSets{ numSets }, mCount{ 0 }, mJump{ 0 }
+{
+    mSamples.reserve(mNumSets* mNumSamples);
+    setupShuffledIndeces();
+}
 
-	Colour L{ 0,0,0 };
-	if (vDotr > 0.0)
-	{
-		L = Colour( specularCoefficient * glm::pow(vDotr, specularExp) );
-	}
+int Sampler::getNumSamples() const
+{
+    return mNumSamples;
+}
 
-	return L;
+void Sampler::setupShuffledIndeces()
+{
+    mShuffledIndeces.reserve(mNumSamples * mNumSets);
+    std::vector<int> indices;
+
+    std::random_device d;
+    std::mt19937 generator(d());
+
+    for (int j = 0; j < mNumSamples; ++j)
+    {
+        indices.push_back(j);
+    }
+
+    for (int p = 0; p < mNumSets; ++p)
+    {
+        std::shuffle(indices.begin(), indices.end(), generator);
+
+        for (int j = 0; j < mNumSamples; ++j)
+        {
+            mShuffledIndeces.push_back(indices[j]);
+        }
+    }
+}
+
+atlas::math::Point Sampler::sampleUnitSquare()
+{
+    if (mCount % mNumSamples == 0)
+    {
+        atlas::math::Random<int> engine;
+        mJump = (engine.getRandomMax() % mNumSets) * mNumSamples;
+    }
+
+    return mSamples[mJump + mShuffledIndeces[mJump + mCount++ % mNumSamples]];
+}
+
+// ***** Light function members *****
+Colour Light::L([[maybe_unused]] ShadeRec& sr)
+{
+    return mRadiance * mColour;
+}
+
+void Light::scaleRadiance(float b)
+{
+    mRadiance = b;
+}
+
+void Light::setColour(Colour const& c)
+{
+    mColour = c;
 }
 
 // ***** Sphere function members *****
-Sphere::Sphere(Point center, float radius) :
-	mCentre{ center }, mRadius{ radius }, mRadiusSqr{ radius * radius }
+Sphere::Sphere(atlas::math::Point center, float radius) :
+    mCentre{ center }, mRadius{ radius }, mRadiusSqr{ radius * radius }
 {}
 
-bool Sphere::hit(Ray const& ray, SurfaceData& data) const
+bool Sphere::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+    ShadeRec& sr) const
 {
-	Vector temp = ray.o - mCentre;
-	float a = glm::dot(ray.d, ray.d);
-	float b = 2.0f * glm::dot(temp, ray.d);
-	float c = glm::dot(temp, temp) - mRadiusSqr;
-	float disc = b * b - 4.0f * a * c;
+    atlas::math::Vector tmp = ray.o - mCentre;
+    float t{ std::numeric_limits<float>::max() };
+    bool intersect{ intersectRay(ray, t) };
 
-	if (disc < 0.0f)
-	{
-		return false;
-	}
+    // update ShadeRec info about new closest hit
+    if (intersect && t < sr.t)
+    {
+        sr.normal = (tmp + t * ray.d) / mRadius;
+        sr.ray = ray;
+        sr.color = mColour;
+        sr.t = t;
+        sr.material = mMaterial;
+    }
 
-	double e = sqrt(disc);
-	double denom = 2.0 * a;
-	float t = (-b - e) / denom;    // smaller root
+    return intersect;
+}
 
-	if (t < data.t)
-	{
-		data.intersection = ray.o + (t * ray.d);
-		data.normal = glm::normalize(data.intersection - mCentre);
-		data.t = t;
-		data.material = mMaterial;
+bool Sphere::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin) const
+{
+    const auto tmp{ ray.o - mCentre };
+    const auto a{ glm::dot(ray.d, ray.d) };
+    const auto b{ 2.0f * glm::dot(ray.d, tmp) };
+    const auto c{ glm::dot(tmp, tmp) - mRadiusSqr };
+    const auto disc{ (b * b) - (4.0f * a * c) };
 
-		return true;
-	}
-	return false;
+    if (atlas::core::geq(disc, 0.0f))
+    {
+        const float kEpsilon{ 0.01f };
+        const float e{ std::sqrt(disc) };
+        const float denom{ 2.0f * a };
+
+        // Look at the negative root first
+        float t = (-b - e) / denom;
+        if (atlas::core::geq(t, kEpsilon))
+        {
+            tMin = t;
+            return true;
+        }
+
+        // Now the positive root
+        t = (-b + e);
+        if (atlas::core::geq(t, kEpsilon))
+        {
+            tMin = t;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// ***** Triangle function members *****
+
+Triangle::Triangle(Point p0, Point p1, Point p2, Vector2 p0UV, Vector2 p1UV, Vector2 p2UV)
+    : mV0(p0), mV1(p1), mV2(p2), mUV0(p0UV), mUV1(p1UV), mUV2(p2UV), mBarycenCoords{ 0,0,0 }
+{}
+
+bool Triangle::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+    ShadeRec& sr) const
+{
+    float t{ std::numeric_limits<float>::max() };
+    bool intersect{ intersectRay(ray, t) };
+
+    if (t < sr.t)
+    {
+        glm::vec3 v2v0 = mV2 - mV0;
+        glm::vec3 v1v0 = mV1 - mV0;
+        sr.normal = glm::normalize(glm::cross(v1v0, v2v0));
+        sr.t = t;
+        sr.ray = ray;
+        sr.color = mColour;
+        sr.material = mMaterial;
+        sr.uCoord = (mUV0.x * mBarycenCoords.x) + (mUV1.x * mBarycenCoords.y) + (mUV2.x * mBarycenCoords.z);
+        sr.vCoord = (mUV0.y * mBarycenCoords.x) + (mUV1.y * mBarycenCoords.y) + (mUV2.y * mBarycenCoords.z);
+
+        return true;
+    }
+    return false;
+}
+
+Vector Triangle::getV0Point() const
+{
+    return mV0;
+}
+Vector Triangle::getV1Point() const
+{
+    return mV1;
+}
+Vector Triangle::getV2Point() const
+{
+    return mV2;
+}
+
+bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin) const
+{
+    const double ep = 0.000001;
+    glm::vec3 v2v0 = mV2 - mV0;
+    glm::vec3 v1v0 = mV1 - mV0;
+    glm::vec3 rayv0 = ray.o - mV0;
+    glm::vec3 pvec = glm::cross(ray.d, v2v0);
+
+    float det = glm::dot(v1v0, pvec);
+    float invDet = 1.0f / det;
+
+    float u = glm::dot(rayv0, pvec) * invDet;
+
+    if (u < 0 || u > 1)
+    {
+        return false;
+    }
+
+    glm::vec3 qvec = glm::cross(rayv0, v1v0);
+
+    float v = glm::dot(ray.d, qvec) * invDet;
+
+    if (v < 0 || u + v > 1)
+    {
+        return false;
+    }
+
+    float t = glm::dot(v2v0, qvec) * invDet;
+    tMin = t;
+
+    mBarycenCoords = Vector{ u, v, 1 - u - v };
+
+    return true;
+}
+
+// ***** Triangle function members *****
+Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
+{
+    std::vector<std::shared_ptr<Textured>> loadedMaterials;
+
+    for (size_t i{ 0 }; i < mesh.materials.size(); i++)
+    {
+        loadedMaterials.push_back(
+            std::make_shared<Textured>(mesh.materials[i], modelSubDirName));
+    }
+    // Go through each shape
+    for (size_t i{ 0 }; i < mesh.shapes.size(); i ++)
+    {
+        atlas::utils::Shape shape = mesh.shapes[i];
+
+        // Check if number of indices are summable by 3
+        if (shape.indices.size() % 3 != 0) return;
+
+        // Go through each triangle in shape
+        for (size_t k{ 0 }; k < mesh.shapes[i].indices.size() - 2; k += 3)
+        {
+            atlas::utils::Vertex v0 = shape.vertices[shape.indices[k]];
+            atlas::utils::Vertex v1 = shape.vertices[shape.indices[k + 1]];
+            atlas::utils::Vertex v2 = shape.vertices[shape.indices[k + 2]];
+            mMeshTriangles.push_back(Triangle{ v0.position, v1.position, v2.position,
+                                                v0.texCoord, v1.texCoord, v2.texCoord, });
+
+            if (!shape.materialIds.empty())
+            {
+                mMeshTriangles[mMeshTriangles.size() - 1].setMaterial(
+                    loadedMaterials[shape.materialIds[i]]);
+            }
+        }
+    }
+
+    mBoundVolumeBox = std::make_unique<BoundingVolumeBox>(mMeshTriangles[0].getV0Point());
+    for (size_t i{ 0 }; i < mMeshTriangles.size(); i++)
+    {
+        mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV0Point());
+        mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV1Point());
+        mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV2Point());
+    }
+}
+bool Mesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+    ShadeRec& sr) const
+{
+    float t{ std::numeric_limits<float>::max() };
+
+    ShadeRec nearestSR;
+    bool intersected = false;
+
+    bool volumeIntersect = mBoundVolumeBox->intersects(ray);
+    if (!volumeIntersect) return false;
+
+    for (size_t i{ 0 }; i < mMeshTriangles.size(); i++)
+    {
+        bool intersect{ mMeshTriangles[i].hit(ray, sr) };
+
+        if (intersect && sr.t < t)
+        {
+            t = sr.t;
+            nearestSR = sr;
+            intersected = true;
+        }
+    }
+
+    return intersected;
+}
+
+bool Mesh::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin) const
+{
+    return false;
+}
+
+// ***** Plane function members *****
+Plane::Plane(Point point, Vector normal) : mPoint(point), mNormal(normal)
+{}
+
+bool Plane::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+    ShadeRec& sr) const
+{
+    float t{ std::numeric_limits<float>::max() };
+    bool intersect{ intersectRay(ray, t) };
+
+    if (t < sr.t)
+    {
+        sr.normal = mNormal;
+        sr.t = t;
+        sr.ray = ray;
+        sr.color = mColour;
+        sr.material = mMaterial;
+
+        return true;
+    }
+    return false;
+}
+
+bool Plane::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin) const
+{
+    float denom = glm::dot(mNormal, ray.d); 
+    if (abs(denom) < 0.00001f) return false;
+
+    float t = abs(glm::dot((mPoint - ray.o), mNormal) / denom);
+    if (t < tMin)
+    {
+        tMin = t;
+        return true;
+    }
+
+    return false;
+}
+
+void Plane::setPoint(Point const& point)
+{
+    mPoint = point;
+}
+
+const Vector& Plane::getPoint() const
+{
+    return mPoint;
 }
 
 
-// ***** Plane function members *****
-Plane::Plane(Point point, Vector normal) :
-	point{ point }, normal{ normal }
+// ***** Regular function members *****
+Regular::Regular(int numSamples, int numSets) : Sampler{ numSamples, numSets }
+{
+    generateSamples();
+}
+
+void Regular::generateSamples()
+{
+    int n = static_cast<int>(glm::sqrt(static_cast<float>(mNumSamples)));
+
+    for (int j = 0; j < mNumSets; ++j)
+    {
+        for (int p = 0; p < n; ++p)
+        {
+            for (int q = 0; q < n; ++q)
+            {
+                mSamples.push_back(
+                    atlas::math::Point{ (q + 0.5f) / n, (p + 0.5f) / n, 0.0f });
+            }
+        }
+    }
+}
+
+// ***** Regular function members *****
+Random::Random(int numSamples, int numSets) : Sampler{ numSamples, numSets }
+{
+    generateSamples();
+}
+
+void Random::generateSamples()
+{
+    atlas::math::Random<float> engine;
+    for (int p = 0; p < mNumSets; ++p)
+    {
+        for (int q = 0; q < mNumSamples; ++q)
+        {
+            mSamples.push_back(atlas::math::Point{
+                engine.getRandomOne(), engine.getRandomOne(), 0.0f });
+        }
+    }
+}
+
+// ***** Lambertian function members *****
+Lambertian::Lambertian() : mDiffuseColour{}, mDiffuseReflection{}
 {}
 
+Lambertian::Lambertian(Colour diffuseColor, float diffuseReflection) :
+    mDiffuseColour{ diffuseColor }, mDiffuseReflection{ diffuseReflection }
+{}
 
-bool Plane::hit(Ray const& ray, SurfaceData& data) const
+Colour
+Lambertian::fn([[maybe_unused]] ShadeRec const& sr,
+    [[maybe_unused]] atlas::math::Vector const& reflected,
+    [[maybe_unused]] atlas::math::Vector const& incoming) const
+{
+    return mDiffuseColour * mDiffuseReflection * glm::one_over_pi<float>();
+}
+
+Colour
+Lambertian::rho([[maybe_unused]] ShadeRec const& sr,
+    [[maybe_unused]] atlas::math::Vector const& reflected) const
+{
+    return mDiffuseColour * mDiffuseReflection;
+}
+
+void Lambertian::setDiffuseReflection(float kd)
+{
+    mDiffuseReflection = kd;
+}
+
+void Lambertian::setDiffuseColour(Colour const& colour)
+{
+    mDiffuseColour = colour;
+}
+
+// ***** Matte function members *****
+Matte::Matte() :
+    Material{},
+    mDiffuseBRDF{ std::make_shared<Lambertian>() },
+    mAmbientBRDF{ std::make_shared<Lambertian>() }
+{}
+
+Matte::Matte(float kd, float ka, Colour color) : Matte{}
+{
+    setDiffuseReflection(kd);
+    setAmbientReflection(ka);
+    setDiffuseColour(color);
+}
+
+void Matte::setDiffuseReflection(float k)
+{
+    mDiffuseBRDF->setDiffuseReflection(k);
+}
+
+void Matte::setAmbientReflection(float k)
+{
+    mAmbientBRDF->setDiffuseReflection(k);
+}
+
+void Matte::setDiffuseColour(Colour colour)
+{
+    mDiffuseBRDF->setDiffuseColour(colour);
+    mAmbientBRDF->setDiffuseColour(colour);
+}
+
+Colour Matte::shade(ShadeRec& sr)
+{
+    using atlas::math::Ray;
+    using atlas::math::Vector;
+
+    Vector wo = -sr.ray.o;
+    Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+    size_t numLights = sr.world->lights.size();
+
+    for (size_t i{ 0 }; i < numLights; ++i)
+    {
+        Vector wi = sr.world->lights[i]->getDirection(sr);
+        float nDotWi = glm::dot(sr.normal, wi);
+
+        if (nDotWi > 0.0f)
+        {
+            L += mDiffuseBRDF->fn(sr, wo, wi) * sr.world->lights[i]->L(sr) *
+                nDotWi;
+        }
+    }
+
+    return L;
+}
+
+// ***** Textured function members ***** 
+Textured::Textured(tinyobj::material_t const& material, std::string const& modelSubDirName) 
+    : mTexture(ImageTexture{ modelRoot + modelSubDirName + material.diffuse_texname })
+{
+
+}
+
+Colour Textured::shade(ShadeRec& sr)
+{
+    ColourAlpha colourA = mTexture.getColour(sr.uCoord, sr.vCoord);
+    return colourA;
+}
+
+// ***** Directional function members *****
+Directional::Directional() : Light{}
+{}
+
+Directional::Directional(atlas::math::Vector const& d) : Light{}
+{
+    setDirection(d);
+}
+
+void Directional::setDirection(atlas::math::Vector const& d)
+{
+    mDirection = glm::normalize(d);
+}
+
+atlas::math::Vector Directional::getDirection([[maybe_unused]] ShadeRec& sr)
+{
+    return mDirection;
+}
+
+// ***** Ambient function members *****
+Ambient::Ambient() : Light{}
+{}
+
+atlas::math::Vector Ambient::getDirection([[maybe_unused]] ShadeRec& sr)
+{
+    return atlas::math::Vector{ 0.0f };
+}
+
+// ***** Camera function members *****
+Camera::Camera(Point position, Point lookAt, Vector up, float frustrumDist)
+    : mEye{ position }, mLookAt{ lookAt - position }, mFrustrumDist(frustrumDist)
+{
+    mW = glm::normalize(position - lookAt);
+    mV = glm::normalize(glm::cross(mW, up));
+    mU = glm::normalize(glm::cross(mW, mV));
+}
+
+void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
+{
+    ray.o = mEye;
+    ray.d = glm::normalize(static_cast<float>(x) * mV + static_cast<float>(y) * mU - mFrustrumDist * mW);
+}
+
+// ******* Driver Code *******
+
 void raytrace(int beginBlock, int endBlock, Camera const& camera, std::shared_ptr<World> world)
 {
     Point samplePoint{}, pixelPoint{};
@@ -515,6 +777,7 @@ int main()
     {
         threads[i]->join();
     }
+    
     /*
     Point samplePoint{}, pixelPoint{};
     Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
@@ -556,6 +819,7 @@ int main()
 
         }
         std::cout << r << std::endl;
+    }
     */
 
     saveToFile("raytrace.bmp", world->width, world->height, world->image);
@@ -563,7 +827,24 @@ int main()
     return 0;
 }
 
-float randomRange(float min, float max)
+void saveToFile(std::string const& filename,
+    std::size_t width,
+    std::size_t height,
+    std::vector<Colour> const& image)
 {
-	return (static_cast <float> (rand()) / static_cast <float> (RAND_MAX) + min) * max;
+    std::vector<unsigned char> data(image.size() * 3);
+
+    for (std::size_t i{ 0 }, k{ 0 }; i < image.size(); ++i, k += 3)
+    {
+        Colour pixel = image[i];
+        data[k + 0] = static_cast<unsigned char>(pixel.r * 255);
+        data[k + 1] = static_cast<unsigned char>(pixel.g * 255);
+        data[k + 2] = static_cast<unsigned char>(pixel.b * 255);
+    }
+
+    stbi_write_bmp(filename.c_str(),
+        static_cast<int>(width),
+        static_cast<int>(height),
+        3,
+        data.data());
 }
