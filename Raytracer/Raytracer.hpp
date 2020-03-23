@@ -17,7 +17,10 @@
 #include <vector>
 #include <iostream>
 #include <thread>
-
+#include <sstream>
+#include <mutex>
+#include <queue>
+#include <atomic>
 
 using atlas::core::areEqual;
 
@@ -43,6 +46,26 @@ class BoundingVolumeBox;
 
 static std::string modelRoot{ "C:/Users/Andrew/Documents/GitHub/Raytracer/Raytracer/Raytracer/models/" };
 
+/** Thread safe cout class
+  * Exemple of use:
+  *    PrintThread{} << "Hello world!" << std::endl;
+  */
+class PrintThread : public std::ostringstream
+{
+public:
+    PrintThread() = default;
+
+    ~PrintThread()
+    {
+        std::lock_guard<std::mutex> guard(_mutexPrint);
+        std::cout << this->str();
+    }
+
+private:
+    static std::mutex _mutexPrint;
+};
+std::mutex PrintThread::_mutexPrint{};
+
 struct World
 {
     std::size_t width, height;
@@ -52,6 +75,8 @@ struct World
     std::vector<Colour> image;
     std::vector<std::shared_ptr<Light>> lights;
     std::shared_ptr<Light> ambient;
+
+    int threadsAccessed = 0;
 };
 
 struct ShadeRec
@@ -71,13 +96,40 @@ class ImageTexture
 public:
     ImageTexture(std::string const& imageFilePath);
 
-    ColourAlpha getColour(int x, int y);
+    ColourAlpha getColour(float u, float v);
 
     ~ImageTexture();
 private:
     bool mSet;
     unsigned char* mImage;
     int mWidth, mHeight, mChannels;
+};
+
+
+class ThreadPool
+{
+public:
+    ThreadPool(unsigned int const& numThreads);
+
+    void startJob(std::function<void()> job);
+
+    void waitDone();
+
+    ~ThreadPool();
+private:
+    void loopFunction();
+
+    bool mTerminatePool;
+
+    std::atomic<int> mJobsRunning;
+    std::vector<std::thread> mThreads;
+    std::queue<std::function<void()>> mQueue;
+
+    std::mutex mQueueMutex;
+    std::condition_variable mCondition;
+
+    std::mutex mComplMutex;
+    std::condition_variable mComplCondition;
 };
 
 // Abstract classes defining the interfaces for concrete entities

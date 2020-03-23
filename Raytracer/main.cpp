@@ -2,14 +2,84 @@
 
 // ******* Function Member Implementation *******
 
-// ***** Image function members *****
+// ***** ThreadPool function members *****    
+
+ThreadPool::ThreadPool(unsigned int const& numThreads)
+    : mTerminatePool(false)
+{
+    for (size_t i{ 0 }; i < numThreads; i++)
+    {
+        mThreads.push_back(std::thread(&ThreadPool::loopFunction, this));
+    }
+}
+
+void ThreadPool::loopFunction()
+{
+    while (true)
+    {
+        std::function<void()> Job;
+
+        {
+            std::unique_lock<std::mutex> lock(mQueueMutex);
+
+            mCondition.wait(lock, [&] {return !mQueue.empty() || mTerminatePool; });
+            if (mTerminatePool && mQueue.empty()) break;
+            Job = mQueue.front();
+            mQueue.pop();
+        }
+        mJobsRunning++;
+        Job(); 
+        if (--mJobsRunning == 0 && mQueue.empty()) {
+            mComplCondition.notify_one();
+        }
+    }
+}
+
+void ThreadPool::startJob(std::function<void()> job)
+{
+    {
+        std::unique_lock<std::mutex> lock(mQueueMutex);
+        mQueue.push(job);
+    }
+    mCondition.notify_one();
+}
+
+void ThreadPool::waitDone()
+{
+    std::unique_lock<std::mutex> lock(mComplMutex);
+    mComplCondition.wait(lock);
+}
+
+ThreadPool::~ThreadPool()
+{
+    // Get mutex to set terminatePool so all threads can be woken
+    {
+        std::unique_lock<std::mutex> lock(mQueueMutex);
+        mTerminatePool = true;
+    }
+
+    mCondition.notify_all();
+
+    // Join all threads.
+    for (std::thread& thread : mThreads)
+    {
+        thread.join();
+    }
+
+    mThreads.clear();
+}
+
+// ***** ImageTexture function members ******
+
 ImageTexture::ImageTexture(std::string const& imageFilePath)
+    : mWidth(0), mHeight(0), mChannels(0)
 {
     mImage = stbi_load(imageFilePath.c_str(),
         &mWidth,
         &mHeight,
         &mChannels,
         STBI_rgb_alpha);
+
 
     if (mImage)
     {
@@ -21,18 +91,19 @@ ImageTexture::ImageTexture(std::string const& imageFilePath)
     }
 }
 
-// ***** ImageTexture function members ******
-
 ImageTexture::~ImageTexture()
 {
     mSet = false;
     stbi_image_free(mImage);
 }
 
-ColourAlpha ImageTexture::getColour(int x, int y)
+ColourAlpha ImageTexture::getColour(float u, float v)
 {
     if (mSet)
     {
+        int x = floor(u * mWidth);
+        int y = floor(v * mHeight);
+
         unsigned bytePerPixel = mChannels;
         unsigned char* pixelOffset = mImage + (x + (mHeight * y)) * mChannels;
         unsigned char r = pixelOffset[0];
@@ -335,7 +406,6 @@ Vector Triangle::getV2Point() const
 bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     float& tMin) const
 {
-    const double ep = 0.000001;
     glm::vec3 v2v0 = mV2 - mV0;
     glm::vec3 v1v0 = mV1 - mV0;
     glm::vec3 rayv0 = ray.o - mV0;
@@ -624,10 +694,8 @@ Colour Matte::shade(ShadeRec& sr)
 
 // ***** Textured function members ***** 
 Textured::Textured(tinyobj::material_t const& material, std::string const& modelSubDirName) 
-    : mTexture(ImageTexture{ modelRoot + modelSubDirName + material.diffuse_texname })
-{
-
-}
+    : mTexture(ImageTexture{ modelRoot + modelSubDirName + "/" + material.diffuse_texname })
+{}
 
 Colour Textured::shade(ShadeRec& sr)
 {
@@ -680,16 +748,16 @@ void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
 
 // ******* Driver Code *******
 
-void raytrace(int beginBlock, int endBlock, Camera const& camera, std::shared_ptr<World> world)
+void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Camera const& camera, std::shared_ptr<World> world)
 {
     Point samplePoint{}, pixelPoint{};
     atlas::math::Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
 
     float avg{ 1.0f / world->sampler->getNumSamples() };
 
-    for (int r{ beginBlock }; r < endBlock; ++r)
+    for (int r{ beginBlockY }; r < endBlockY; ++r)
     {
-        for (int c{ 0 }; c < world->width; ++c)
+        for (int c{ beginBlockX }; c < endBlockX; ++c)
         {
             Colour pixelAverage{ 0, 0, 0 };
 
@@ -721,8 +789,10 @@ void raytrace(int beginBlock, int endBlock, Camera const& camera, std::shared_pt
                                                         pixelAverage.b * avg };
 
         }
-        std::cout << r << std::endl;
     }
+    PrintThread{} <<    "y: " << beginBlockY << "-" << endBlockY <<
+                        "x: " << beginBlockX << "-" << endBlockX << 
+                        " on thread: " << std::this_thread::get_id() << std::endl;
 }
 
 int main()
@@ -758,70 +828,41 @@ int main()
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(4.0f);
     
-    int numThreads = std::thread::hardware_concurrency();
-    std::vector <std::shared_ptr<std::thread>> threads;
+    unsigned int numThreads = std::thread::hardware_concurrency();
 
-    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 100.0f };
+    ThreadPool threadPool{ numThreads };
+
+    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 600.0f };
 
     world->image = std::vector<Colour>(world->height * world->width, Colour{ 0,0,0 });
 
-    for (size_t i{ 0 }; i < numThreads; i++)
+    unsigned int gridN = numThreads * 5;
+    // Split image into grid and assign to thread
+    for (size_t y{ 0 }; y < gridN; y++)
     {
-        int columnUnitSize = world->width / numThreads;
-        int beginX = i * columnUnitSize;
-        int endX = beginX + columnUnitSize;
-        threads.push_back(std::make_shared<std::thread>(raytrace, beginX, endX, camera, world));
-    }
-
-    for (size_t i{ 0 }; i < threads.size(); i++)
-    {
-        threads[i]->join();
-    }
-    
-    /*
-    Point samplePoint{}, pixelPoint{};
-    Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
-
-    float avg{ 1.0f / world->sampler->getNumSamples() };
-
-    for (int r{ 0 }; r < world->height; ++r)
-    {
-        for (int c{ 0 }; c < world->width; ++c)
+        for (size_t x{ 0 }; x < gridN; x++)
         {
-            Colour pixelAverage{ 0, 0, 0 };
+            int columnUnitSize = world->width / gridN;
+            int rowUnitSize = world->height / gridN;
 
-            for (int j = 0; j < world->sampler->getNumSamples(); ++j)
-            {
-                ShadeRec trace_data{};
-                trace_data.world = world;
-                trace_data.t = std::numeric_limits<float>::max();
-                samplePoint = world->sampler->sampleUnitSquare();
-                pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
-                pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
-                camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
+            int beginY = y * rowUnitSize;
+            int endY = beginY + rowUnitSize;
+            int beginX = x * columnUnitSize;
+            int endX = beginX + columnUnitSize;
 
-                bool hit{};
-
-                for (auto obj : world->scene)
-                {
-                    hit |= obj->hit(ray, trace_data);
-                }
-
-                if (hit)
-                {
-                    pixelAverage += trace_data.material->shade(trace_data);
-                }
-            }
-
-            world->image.push_back({ pixelAverage.r * avg,
-                                    pixelAverage.g * avg,
-                                    pixelAverage.b * avg });
-
+            threadPool.startJob([=, &camera, &world] { raytrace(beginY, endY, beginX, endX, camera, world); });
         }
-        std::cout << r << std::endl;
+    }
+
+    threadPool.waitDone();
+
+    /*
+    Vector colour;
+    for (size_t i{ 0 }; i < world->image.size(); i++)
+    {
+        colour += world->image[i];
     }
     */
-
     saveToFile("raytrace.bmp", world->width, world->height, world->image);
 
     return 0;
