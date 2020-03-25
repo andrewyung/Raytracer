@@ -87,8 +87,7 @@ struct ShadeRec
     atlas::math::Ray<atlas::math::Vector> ray;
     std::shared_ptr<Material> material;
     std::shared_ptr<World> world;
-    float uCoord;
-    float vCoord;
+    Vector2 uvCoord;
 };
 
 class ImageTexture
@@ -96,7 +95,7 @@ class ImageTexture
 public:
     ImageTexture(std::string const& imageFilePath);
 
-    ColourAlpha getColour(float u, float v);
+    ColourAlpha getColour(Vector2 uv);
 
     ~ImageTexture();
 private:
@@ -142,7 +141,6 @@ public:
     void calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const;
 protected:
     Point mEye;
-    Point mLookAt;
     float mFrustrumDist;
     Vector mU, mV, mW;
 };
@@ -155,7 +153,7 @@ public:
 
     int getNumSamples() const;
 
-    void setupShuffledIndeces();
+    void setupShuffledIndices();
 
     virtual void generateSamples() = 0;
 
@@ -163,7 +161,7 @@ public:
 
 protected:
     std::vector<atlas::math::Point> mSamples;
-    std::vector<int> mShuffledIndeces;
+    std::vector<int> mShuffledIndices;
 
     int mNumSamples;
     int mNumSets;
@@ -298,7 +296,7 @@ public:
         ShadeRec& sr) const;
 
     void setPoint(Point const& point);
- 
+
     const Vector& getPoint() const;
 private:
     bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
@@ -329,6 +327,14 @@ class Regular : public Sampler
 {
 public:
     Regular(int numSamples, int numSets);
+
+    void generateSamples();
+};
+
+class Jitter : public Sampler
+{
+public:
+    Jitter(int numSamples, int numSets);
 
     void generateSamples();
 };
@@ -385,11 +391,11 @@ private:
 class Textured : public Material
 {
 public:
-    Textured(tinyobj::material_t const& material, std::string const& modelSubDirName);
+    Textured(tinyobj::material_t const& material, std::string const& modelSubDirName = "");
 
     Colour shade(ShadeRec& sr) override;
-private:
     ImageTexture mTexture;
+private:
 };
 
 class Directional : public Light

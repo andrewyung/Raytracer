@@ -79,7 +79,7 @@ ImageTexture::ImageTexture(std::string const& imageFilePath)
         &mHeight,
         &mChannels,
         STBI_rgb_alpha);
-
+    mChannels = 4;
 
     if (mImage)
     {
@@ -97,12 +97,12 @@ ImageTexture::~ImageTexture()
     stbi_image_free(mImage);
 }
 
-ColourAlpha ImageTexture::getColour(float u, float v)
+ColourAlpha ImageTexture::getColour(Vector2 uv)
 {
     if (mSet)
     {
-        int x = floor(u * mWidth);
-        int y = floor(v * mHeight);
+        int x = (uv.x * (mWidth));
+        int y = (uv.y * (mHeight));
 
         unsigned bytePerPixel = mChannels;
         unsigned char* pixelOffset = mImage + (x + (mHeight * y)) * mChannels;
@@ -241,8 +241,8 @@ std::shared_ptr<Material> Shape::getMaterial() const
 Sampler::Sampler(int numSamples, int numSets) :
     mNumSamples{ numSamples }, mNumSets{ numSets }, mCount{ 0 }, mJump{ 0 }
 {
-    mSamples.reserve(mNumSets* mNumSamples);
-    setupShuffledIndeces();
+    mSamples.reserve(mNumSets * mNumSamples);
+    setupShuffledIndices();
 }
 
 int Sampler::getNumSamples() const
@@ -250,9 +250,9 @@ int Sampler::getNumSamples() const
     return mNumSamples;
 }
 
-void Sampler::setupShuffledIndeces()
+void Sampler::setupShuffledIndices()
 {
-    mShuffledIndeces.reserve(mNumSamples * mNumSets);
+    mShuffledIndices.reserve(mNumSamples * mNumSets);
     std::vector<int> indices;
 
     std::random_device d;
@@ -269,7 +269,7 @@ void Sampler::setupShuffledIndeces()
 
         for (int j = 0; j < mNumSamples; ++j)
         {
-            mShuffledIndeces.push_back(indices[j]);
+            mShuffledIndices.push_back(indices[j]);
         }
     }
 }
@@ -282,7 +282,7 @@ atlas::math::Point Sampler::sampleUnitSquare()
         mJump = (engine.getRandomMax() % mNumSets) * mNumSamples;
     }
 
-    return mSamples[mJump + mShuffledIndeces[mJump + mCount++ % mNumSamples]];
+    return mSamples[mJump + mShuffledIndices[mJump + mCount++ % mNumSamples]];
 }
 
 // ***** Light function members *****
@@ -382,8 +382,7 @@ bool Triangle::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         sr.ray = ray;
         sr.color = mColour;
         sr.material = mMaterial;
-        sr.uCoord = (mUV0.x * mBarycenCoords.x) + (mUV1.x * mBarycenCoords.y) + (mUV2.x * mBarycenCoords.z);
-        sr.vCoord = (mUV0.y * mBarycenCoords.x) + (mUV1.y * mBarycenCoords.y) + (mUV2.y * mBarycenCoords.z);
+        sr.uvCoord = mBarycenCoords;// (mUV0 * mBarycenCoords.x) + (mUV1 * mBarycenCoords.y) + (mUV2 * mBarycenCoords.z);
 
         return true;
     }
@@ -406,6 +405,31 @@ Vector Triangle::getV2Point() const
 bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     float& tMin) const
 {
+    glm::vec3 v0v1 = mV1 - mV0;
+    glm::vec3 v0v2 = mV2 - mV0;
+    glm::vec3 pvec = cross(ray.d, v0v2);
+    float det = dot(v0v1, pvec);
+
+    // ray and triangle are parallel if det is close to 0
+    if (fabs(det) < 0.000001f) return false;
+    float invDet = 1.0f / det;
+
+    glm::vec3 tvec = ray.o - mV0;
+    float u = dot(tvec, pvec) * invDet;
+    if (u < 0 || u > 1) return false;
+
+    glm::vec3 qvec = cross(tvec, v0v1);
+    float v = dot(ray.d, qvec) * invDet;
+    if (v < 0 || u + v > 1) return false;
+
+    float t = dot(v0v2, qvec) * invDet;
+
+    tMin = t;
+
+    mBarycenCoords = Vector{ u, v, 1.0f - u - v };
+
+    return true;
+    /*
     glm::vec3 v2v0 = mV2 - mV0;
     glm::vec3 v1v0 = mV1 - mV0;
     glm::vec3 rayv0 = ray.o - mV0;
@@ -436,6 +460,7 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     mBarycenCoords = Vector{ u, v, 1 - u - v };
 
     return true;
+    */
 }
 
 // ***** Triangle function members *****
@@ -486,7 +511,6 @@ bool Mesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
 {
     float t{ std::numeric_limits<float>::max() };
 
-    ShadeRec nearestSR;
     bool intersected = false;
 
     bool volumeIntersect = mBoundVolumeBox->intersects(ray);
@@ -499,7 +523,6 @@ bool Mesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         if (intersect && sr.t < t)
         {
             t = sr.t;
-            nearestSR = sr;
             intersected = true;
         }
     }
@@ -581,6 +604,31 @@ void Regular::generateSamples()
             {
                 mSamples.push_back(
                     atlas::math::Point{ (q + 0.5f) / n, (p + 0.5f) / n, 0.0f });
+            }
+        }
+    }
+}
+
+// ***** Jitter function members *****
+Jitter::Jitter(int numSamples, int numSets) : Sampler{ numSamples, numSets }
+{
+    generateSamples();
+}
+
+void Jitter::generateSamples()
+{
+    int n = static_cast<int>(glm::sqrt(static_cast<float>(mNumSamples)));
+    float gridSize = 1.0f / n;
+    for (int j = 0; j < mNumSets; ++j)
+    {
+        for (int p = 0; p < n; ++p)
+        {
+            for (int q = 0; q < n; ++q)
+            {
+                mSamples.push_back(
+                    atlas::math::Point{ q * gridSize + (static_cast<float>(rand()) / RAND_MAX * gridSize), 
+                                        p * gridSize + (static_cast<float>(rand()) / RAND_MAX * gridSize), 
+                                        0.0f });
             }
         }
     }
@@ -699,8 +747,8 @@ Textured::Textured(tinyobj::material_t const& material, std::string const& model
 
 Colour Textured::shade(ShadeRec& sr)
 {
-    ColourAlpha colourA = mTexture.getColour(sr.uCoord, sr.vCoord);
-    return colourA;
+    ColourAlpha colourA = mTexture.getColour(sr.uvCoord);
+    return  ColourAlpha{ sr.uvCoord, 0,0 };
 }
 
 // ***** Directional function members *****
@@ -733,7 +781,7 @@ atlas::math::Vector Ambient::getDirection([[maybe_unused]] ShadeRec& sr)
 
 // ***** Camera function members *****
 Camera::Camera(Point position, Point lookAt, Vector up, float frustrumDist)
-    : mEye{ position }, mLookAt{ lookAt - position }, mFrustrumDist(frustrumDist)
+    : mEye{ position }, mFrustrumDist(frustrumDist)
 {
     mW = glm::normalize(position - lookAt);
     mV = glm::normalize(glm::cross(mW, up));
@@ -743,7 +791,7 @@ Camera::Camera(Point position, Point lookAt, Vector up, float frustrumDist)
 void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
 {
     ray.o = mEye;
-    ray.d = glm::normalize(static_cast<float>(x) * mV + static_cast<float>(y) * mU - mFrustrumDist * mW);
+    ray.d = glm::normalize(x * mV + y * mU - mFrustrumDist * mW);
 }
 
 // ******* Driver Code *******
@@ -751,7 +799,7 @@ void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
 void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Camera const& camera, std::shared_ptr<World> world)
 {
     Point samplePoint{}, pixelPoint{};
-    atlas::math::Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
+    atlas::math::Ray<atlas::math::Vector> ray;
 
     float avg{ 1.0f / world->sampler->getNumSamples() };
 
@@ -766,7 +814,6 @@ void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Ca
                 ShadeRec trace_data{};
                 trace_data.world = world;
                 trace_data.t = std::numeric_limits<float>::max();
-                samplePoint = world->sampler->sampleUnitSquare();
                 pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
                 pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
                 camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
@@ -806,17 +853,19 @@ int main()
     world->width = 1000;
     world->height = 1000;
     world->background = { 0, 0, 0 };
-    world->sampler = std::make_shared<Random>(4, 83);
-
-    world->scene.push_back(
-        std::make_shared<Triangle>(Triangle{ Point{-300, 0, -300}, Point{300, 0, -300}, Point{0, 300, -300} }));
-    world->scene[0]->setMaterial(
-        std::make_shared<Matte>(0.50f, 0.05f, Colour{ 1, 0, 0 }));
-    world->scene[0]->setColour({ 1, 0, 0 });
+    world->sampler = std::make_shared<Jitter>(4, 83);
 
     std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
+   
     world->scene.push_back(
-        std::make_shared<Mesh>(Mesh{ optObjMesh.value(), "teapot" }));
+        std::make_shared<Triangle>(Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, Vector2{0.0f,0.0f}, Vector2{0.5f,1.0f}, Vector2{1.0f,0.0f} }));
+    world->scene[0]->setMaterial(
+        std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot"));
+        //std::make_shared<Matte>(0.50f, 0.05f, Colour{ 1, 0, 0 }));
+    world->scene[0]->setColour({ 1, 0, 0 });
+    
+    //world->scene.push_back(
+    //    std::make_shared<Mesh>(Mesh{ optObjMesh.value(), "teapot" }));
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
@@ -827,16 +876,16 @@ int main()
 
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(4.0f);
-    
+
+    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 600.0f };
+
     unsigned int numThreads = std::thread::hardware_concurrency();
 
     ThreadPool threadPool{ numThreads };
 
-    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 600.0f };
-
     world->image = std::vector<Colour>(world->height * world->width, Colour{ 0,0,0 });
 
-    unsigned int gridN = numThreads * 5;
+    unsigned int gridN = numThreads * 4;
     // Split image into grid and assign to thread
     for (size_t y{ 0 }; y < gridN; y++)
     {
@@ -855,15 +904,61 @@ int main()
     }
 
     threadPool.waitDone();
-
     /*
-    Vector colour;
-    for (size_t i{ 0 }; i < world->image.size(); i++)
+    Point samplePoint{}, pixelPoint{};
+    atlas::math::Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
+
+    float avg{ 1.0f / world->sampler->getNumSamples() };
+
+    for (int r{ 0 }; r < world->height; ++r)
     {
-        colour += world->image[i];
+        for (int c{ 0 }; c < world->width; ++c)
+        {
+            Colour pixelAverage{ 0, 0, 0 };
+
+            for (int j = 0; j < world->sampler->getNumSamples(); ++j)
+            {
+                ShadeRec trace_data{};
+                trace_data.world = world;
+                trace_data.t = std::numeric_limits<float>::max();
+                samplePoint = world->sampler->sampleUnitSquare();
+                pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
+                pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
+                camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
+
+                bool hit{};
+
+                for (auto obj : world->scene)
+                {
+                    hit |= obj->hit(ray, trace_data);
+                }
+
+                if (hit)
+                {
+                    pixelAverage += trace_data.material->shade(trace_data);
+                }
+            }
+
+            world->image.push_back({ pixelAverage.r * avg,
+                                                        pixelAverage.g * avg,
+                                                        pixelAverage.b * avg });
+
+        }
     }
     */
     saveToFile("raytrace.bmp", world->width, world->height, world->image);
+
+    std::vector<Colour> imag;
+    std::shared_ptr<Textured> mat = std::static_pointer_cast<Textured>(world->scene[0]->getMaterial());
+    int texSize = 128;
+    for (int i = 0; i < texSize; i++)
+    {
+        for (int k = 0; k < texSize; k++)
+        {
+            imag.push_back(mat->mTexture.getColour({ static_cast<float>(i) / texSize, static_cast<float>(k) / texSize }));
+        }
+    }    
+    saveToFile("test.bmp", texSize, texSize, imag);
 
     return 0;
 }
