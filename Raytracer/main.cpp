@@ -101,8 +101,8 @@ ColourAlpha ImageTexture::getColour(Vector2 uv)
 {
     if (mSet)
     {
-        int x = (uv.x * (mWidth));
-        int y = (uv.y * (mHeight));
+        int x = floor(uv.x * (mWidth));
+        int y = floor(uv.y * (mHeight));
 
         unsigned bytePerPixel = mChannels;
         unsigned char* pixelOffset = mImage + (x + (mHeight * y)) * mChannels;
@@ -382,7 +382,8 @@ bool Triangle::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         sr.ray = ray;
         sr.color = mColour;
         sr.material = mMaterial;
-        sr.uvCoord = mBarycenCoords;// (mUV0 * mBarycenCoords.x) + (mUV1 * mBarycenCoords.y) + (mUV2 * mBarycenCoords.z);
+        // barycentric coords ordered in a certain way from ray-triangle calculations
+        sr.uvCoord = (mUV1 * mBarycenCoords.x) + (mUV2 * mBarycenCoords.y) + (mUV0 * mBarycenCoords.z);
 
         return true;
     }
@@ -748,7 +749,7 @@ Textured::Textured(tinyobj::material_t const& material, std::string const& model
 Colour Textured::shade(ShadeRec& sr)
 {
     ColourAlpha colourA = mTexture.getColour(sr.uvCoord);
-    return  ColourAlpha{ sr.uvCoord, 0,0 };
+    return colourA;// ColourAlpha{ sr.uvCoord, 0,0 };
 }
 
 // ***** Directional function members *****
@@ -858,14 +859,14 @@ int main()
     std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
    
     world->scene.push_back(
-        std::make_shared<Triangle>(Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, Vector2{0.0f,0.0f}, Vector2{0.5f,1.0f}, Vector2{1.0f,0.0f} }));
+        std::make_shared<Triangle>(Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} }));
     world->scene[0]->setMaterial(
         std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot"));
         //std::make_shared<Matte>(0.50f, 0.05f, Colour{ 1, 0, 0 }));
     world->scene[0]->setColour({ 1, 0, 0 });
     
-    //world->scene.push_back(
-    //    std::make_shared<Mesh>(Mesh{ optObjMesh.value(), "teapot" }));
+    world->scene.push_back(
+        std::make_shared<Mesh>(Mesh{ optObjMesh.value(), "teapot" }));
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
@@ -879,13 +880,14 @@ int main()
 
     Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 600.0f };
 
+    // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();
 
     ThreadPool threadPool{ numThreads };
 
     world->image = std::vector<Colour>(world->height * world->width, Colour{ 0,0,0 });
 
-    unsigned int gridN = numThreads * 4;
+    unsigned int gridN = 20;
     // Split image into grid and assign to thread
     for (size_t y{ 0 }; y < gridN; y++)
     {
@@ -950,7 +952,7 @@ int main()
 
     std::vector<Colour> imag;
     std::shared_ptr<Textured> mat = std::static_pointer_cast<Textured>(world->scene[0]->getMaterial());
-    int texSize = 128;
+    int texSize = 200;
     for (int i = 0; i < texSize; i++)
     {
         for (int k = 0; k < texSize; k++)
