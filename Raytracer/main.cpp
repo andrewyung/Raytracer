@@ -268,21 +268,21 @@ void BVHAccel::addShape(std::vector<Point> boundingBoxPoints, std::shared_ptr<Sh
 
 void BVHAccel::generateBVH()
 {
-    unsigned int leaves = mHeirarchy.size();
-    unsigned int nextLayerLeaves = ceil(leaves / 2);
+    int leaves = mHeirarchy.size();
+    int nextLayerLeaves = ceil(leaves / 2.0f);
 
     // Find nearest extents
     while (leaves != 1)
     {
-        unsigned int layerEndRange = mHeirarchy.size();
-        unsigned int layerStartRange = mHeirarchy.size() - leaves;
+        int layerEndRange = mHeirarchy.size();
+        int layerStartRange = mHeirarchy.size() - leaves;
         for (size_t y{ 0 }; y < nextLayerLeaves; y++)
         {
             // find closest bounds
             size_t leaf1Index{ 0 };
             size_t leaf2Index{ 0 };
-            size_t i;
-            size_t k;
+            int i;
+            int k;
             bool set = false;
             float minCentroidDist = std::numeric_limits<float>().max();
             for (i = { layerEndRange - 1 }; i > layerStartRange; i--)
@@ -291,7 +291,7 @@ void BVHAccel::generateBVH()
 
                 for (k = { i - 1 }; k >= layerStartRange; k--)
                 {
-                    if (k == (size_t)-1) break;;
+                    if (k < 0 || k < layerStartRange) break;
                     if (mHeirarchy[k].accesed) continue;
 
                     float centroidDist = distance(mHeirarchy[i].nodeBvb.getCentroid(), mHeirarchy[k].nodeBvb.getCentroid());
@@ -308,12 +308,14 @@ void BVHAccel::generateBVH()
             if (!set)
             {
                 // Find unaccessed node
-                for (i = { layerEndRange - 1 }; i > layerStartRange; i--)
+                for (i = { layerEndRange - 1 }; i >= layerStartRange; i--)
                 {
+                    if (i < 0 || i < layerStartRange) break;
                     if (!mHeirarchy[i].accesed)
                     {
-                        mHeirarchy[i].accesed = true;
                         mHeirarchy.push_back(mHeirarchy[i]);
+                        mHeirarchy[i].accesed = true;
+                        break;
                     }
                 }
             }
@@ -344,7 +346,7 @@ void BVHAccel::generateBVH()
         }
 
         leaves = nextLayerLeaves;
-        nextLayerLeaves = ceil(leaves / 2);
+        nextLayerLeaves = ceil(leaves / 2.0f);
     }
 }
 
@@ -1164,17 +1166,41 @@ int main()
     triangleBvb.addVolumePoint(triangle1->getV2Point());
     triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
 
-    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" , Vector{50,0,0} });
-    
-    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
+    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{400,0,-200} });
+    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,0,-100} });
+    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,550,-200} });
+    std::shared_ptr<MultiMesh> multiMesh4 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{400,400,-200} });
+    std::shared_ptr<MultiMesh> multiMesh5 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,-500,-100} });
+    std::shared_ptr<MultiMesh> multiMesh6 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-550,550,-200} });
+    std::shared_ptr<MultiMesh> multiMesh7 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-400,250,-200} });
+    std::shared_ptr<MultiMesh> multiMesh8 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-400,-100,-100} });
+    std::shared_ptr<MultiMesh> multiMesh9 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{550,550,-200} });
     
     bvhAccel->addShape(triangleBvb.getBoundingBoxPoints(), triangle1);
     bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
-    //bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
+    bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
+    bvhAccel->addShape(multiMesh3->getBoundingBoxPoints(), multiMesh3);
+    bvhAccel->addShape(multiMesh4->getBoundingBoxPoints(), multiMesh4);
+    bvhAccel->addShape(multiMesh5->getBoundingBoxPoints(), multiMesh5);
+    bvhAccel->addShape(multiMesh6->getBoundingBoxPoints(), multiMesh6);
+    bvhAccel->addShape(multiMesh7->getBoundingBoxPoints(), multiMesh7);
+    bvhAccel->addShape(multiMesh8->getBoundingBoxPoints(), multiMesh8);
+    bvhAccel->addShape(multiMesh9->getBoundingBoxPoints(), multiMesh9);
 
     bvhAccel->generateBVH();
     world->scene.push_back(bvhAccel);
-    //world->scene.push_back(triangle1);
+    /*
+    world->scene.push_back(triangle1);
+    world->scene.push_back(multiMesh1);
+    world->scene.push_back(multiMesh2);
+    world->scene.push_back(multiMesh3);
+    world->scene.push_back(multiMesh4);
+    world->scene.push_back(multiMesh5);
+    world->scene.push_back(multiMesh6);
+    world->scene.push_back(multiMesh7);
+    world->scene.push_back(multiMesh8);
+    world->scene.push_back(multiMesh9);
+    */
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
@@ -1186,7 +1212,7 @@ int main()
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(4.0f);
 
-    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 500.0f };
+    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 300.0f };
 
     // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();
