@@ -289,8 +289,9 @@ void BVHAccel::generateBVH()
             {
                 if (mHeirarchy[i].accesed) continue;
 
-                for (k = { i - 1 }; k > layerStartRange; k--)
+                for (k = { i - 1 }; k >= layerStartRange; k--)
                 {
+                    if (k == (size_t)-1) break;;
                     if (mHeirarchy[k].accesed) continue;
 
                     float centroidDist = distance(mHeirarchy[i].nodeBvb.getCentroid(), mHeirarchy[k].nodeBvb.getCentroid());
@@ -1158,9 +1159,12 @@ int main()
     triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
 
     std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
-
+    
+    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
+    
     bvhAccel->addShape(triangleBvb.getBoundingBoxPoints(), triangle1);
     bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
+    bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
 
     bvhAccel->generateBVH();
     world->scene.push_back(bvhAccel);
@@ -1176,7 +1180,7 @@ int main()
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(4.0f);
 
-    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 600.0f };
+    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 500.0f };
 
     // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();
