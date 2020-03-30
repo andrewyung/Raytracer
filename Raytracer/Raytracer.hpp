@@ -278,7 +278,7 @@ private:
 class MultiMesh : public Shape
 {
 public:
-    MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "");
+    MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "", Vector offset = { 0,0,0 });
 
     bool hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         ShadeRec& sr) const;
@@ -295,8 +295,8 @@ private:
 class Mesh : public Shape
 {
 public:
-    Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "");
-    Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<std::shared_ptr<Textured>>& loadedMaterials, std::string modelSubDirName);
+    Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "", Vector offset = { 0,0,0 });
+    Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<std::shared_ptr<Textured>>& loadedMaterials, std::string modelSubDirName, Vector offset = { 0,0,0 });
 
     bool hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         ShadeRec& sr) const;

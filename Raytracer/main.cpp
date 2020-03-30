@@ -649,7 +649,7 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
 }
 
 // ***** MultiMesh function members *****
-MultiMesh::MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
+MultiMesh::MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName, Vector offset)
 {
     std::vector<std::shared_ptr<Textured>> loadedMaterials;
 
@@ -661,7 +661,7 @@ MultiMesh::MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirN
     // Go through each shape
     for (size_t i{ 0 }; i < mesh.shapes.size(); i++)
     {
-        meshes.push_back(Mesh(mesh.shapes[i], i, loadedMaterials, modelSubDirName));
+        meshes.push_back(Mesh(mesh.shapes[i], i, loadedMaterials, modelSubDirName, offset));
     }
 
     mBoundVolumeBox = std::make_unique<BoundingVolumeBox>(meshes[0].getBoundingBoxPoints()[0]);
@@ -712,7 +712,7 @@ std::vector<Point> MultiMesh::getBoundingBoxPoints()
 
 
 // ***** Mesh function members *****
-Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
+Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName, Vector offset)
 {
     std::vector<std::shared_ptr<Textured>> loadedMaterials;
 
@@ -733,8 +733,11 @@ Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
         for (size_t k{ 0 }; k < mesh.shapes[i].indices.size() - 2; k += 3)
         {
             atlas::utils::Vertex v0 = shape.vertices[shape.indices[k]];
+            v0.position += offset;
             atlas::utils::Vertex v1 = shape.vertices[shape.indices[k + 1]];
+            v1.position += offset;
             atlas::utils::Vertex v2 = shape.vertices[shape.indices[k + 2]];
+            v2.position += offset;
             mMeshTriangles.push_back(Triangle{ v0.position, v1.position, v2.position,
                                                 v0.texCoord, v1.texCoord, v2.texCoord, });
 
@@ -755,7 +758,7 @@ Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
     }
 }
 
-Mesh::Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<std::shared_ptr<Textured>>& loadedMaterials, std::string modelSubDirName)
+Mesh::Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<std::shared_ptr<Textured>>& loadedMaterials, std::string modelSubDirName, Vector offset)
 {
     // Check if number of indices are summable by 3
     if (shape.indices.size() % 3 != 0) return;
@@ -764,8 +767,11 @@ Mesh::Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<s
     for (size_t k{ 0 }; k < shape.indices.size() - 2; k += 3)
     {
         atlas::utils::Vertex v0 = shape.vertices[shape.indices[k]];
+        v0.position += offset;
         atlas::utils::Vertex v1 = shape.vertices[shape.indices[k + 1]];
+        v1.position += offset;
         atlas::utils::Vertex v2 = shape.vertices[shape.indices[k + 2]];
+        v2.position += offset;
         mMeshTriangles.push_back(Triangle{ v0.position, v1.position, v2.position,
                                             v0.texCoord, v1.texCoord, v2.texCoord, });
 
@@ -1158,13 +1164,13 @@ int main()
     triangleBvb.addVolumePoint(triangle1->getV2Point());
     triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
 
-    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
+    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" , Vector{50,0,0} });
     
     std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
     
     bvhAccel->addShape(triangleBvb.getBoundingBoxPoints(), triangle1);
     bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
-    bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
+    //bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
 
     bvhAccel->generateBVH();
     world->scene.push_back(bvhAccel);
