@@ -979,6 +979,49 @@ void Lambertian::setDiffuseColour(Colour const& colour)
     mDiffuseColour = colour;
 }
 
+// ***** SpecularReflection function members *****
+SpecularReflection::SpecularReflection()
+    : mSpecularColour({ 1,1,1 }), mSpecularCofficient(0.2f), mSpecularExp(16)
+{}    
+
+void SpecularReflection::setSpecularCoefficient(float kd)
+{
+    mSpecularCofficient = kd;
+}
+
+void SpecularReflection::setSpecularExp(int exp)
+{
+    mSpecularExp = exp;
+}
+
+void SpecularReflection::setSpecularColour(Colour const& colour)
+{
+    mSpecularColour = colour;
+}
+
+Colour SpecularReflection::fn(ShadeRec const& sr,
+    atlas::math::Vector const& reflected,
+    atlas::math::Vector const& incoming) const
+{
+    Vector r = glm::reflect(incoming, sr.normal);
+
+    float vDotr = glm::dot(r, -reflected);
+
+    Colour L{ 0,0,0 };
+    if (vDotr > 0.0)
+    {
+        L = Colour(mSpecularCofficient * glm::pow(vDotr, mSpecularExp));
+    }
+
+    return L;
+}
+
+Colour SpecularReflection::rho(ShadeRec const& sr,
+    atlas::math::Vector const& reflected) const
+{
+    return { 0,0,0 };
+}
+
 // ***** Matte function members *****
 Matte::Matte() :
     Material{},
@@ -986,7 +1029,7 @@ Matte::Matte() :
     mAmbientBRDF{ std::make_shared<Lambertian>() }
 {}
 
-Matte::Matte(float kd, float ka, Colour color) : Matte{}
+Matte::Matte(float kd, float ka, Colour color)
 {
     setDiffuseReflection(kd);
     setAmbientReflection(ka);
@@ -1014,7 +1057,7 @@ Colour Matte::shade(ShadeRec& sr)
     using atlas::math::Ray;
     using atlas::math::Vector;
 
-    Vector wo = -sr.ray.o;
+    Vector wo = -sr.ray.d;
     Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
     size_t numLights = sr.world->lights.size();
 
@@ -1033,6 +1076,79 @@ Colour Matte::shade(ShadeRec& sr)
     return L;
 }
 
+// ***** Specular function members *****
+
+Specular::Specular() :
+    Material{},
+    mSpecularBRDF{ std::make_shared<SpecularReflection>() },
+    mDiffuseBRDF{ std::make_shared<Lambertian>() },
+    mAmbientBRDF{ std::make_shared<Lambertian>() }
+{}
+
+Specular::Specular(float ks, float kd, float ka, Colour color)
+{
+    setDiffuseReflection(ks);
+    setDiffuseReflection(kd);
+    setAmbientReflection(ka);
+    setDiffuseColour(color);
+}
+
+void Specular::setSpecularCoefficient(float k)
+{
+    mSpecularBRDF->setSpecularCoefficient(k);
+}
+
+void Specular::setDiffuseReflection(float k)
+{
+    mDiffuseBRDF->setDiffuseReflection(k);
+}
+
+void Specular::setAmbientReflection(float k)
+{
+    mAmbientBRDF->setDiffuseReflection(k);
+}
+
+void Specular::setDiffuseColour(Colour colour)
+{
+    mSpecularBRDF->setSpecularColour(colour);
+    mDiffuseBRDF->setDiffuseColour(colour);
+    mAmbientBRDF->setDiffuseColour(colour);
+}
+
+void Specular::setSpecularExp(int k)
+{
+    mSpecularBRDF->setSpecularExp(k);
+}
+
+Colour Specular::shade(ShadeRec& sr)
+{
+    using atlas::math::Ray;
+    using atlas::math::Vector;
+
+    Vector wo = normalize(-sr.ray.d);
+    Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+    size_t numLights = sr.world->lights.size();
+
+    for (size_t i{ 0 }; i < numLights; ++i)
+    {
+        Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
+        float nDotWi = glm::dot(sr.normal, wi);
+
+        if (nDotWi > 0.0f)
+        {
+            L += mDiffuseBRDF->fn(sr, wo, wi) * sr.world->lights[i]->L(sr) *
+               nDotWi;
+            L += mSpecularBRDF->fn(sr, wo, wi);
+        }
+    }
+
+    L.x = glm::clamp<float>(L.x, 0, 1);
+    L.y = glm::clamp<float>(L.y, 0, 1);
+    L.z = glm::clamp<float>(L.z, 0, 1);
+    return L;
+}
+
+
 // ***** Textured function members ***** 
 Textured::Textured(tinyobj::material_t const& material, std::string const& modelSubDirName) 
     : mTexture(ImageTexture{ modelRoot + modelSubDirName + "/" + material.diffuse_texname })
@@ -1040,6 +1156,26 @@ Textured::Textured(tinyobj::material_t const& material, std::string const& model
 
 Colour Textured::shade(ShadeRec& sr)
 {
+    /*
+    using atlas::math::Ray;
+    using atlas::math::Vector;
+
+    Vector wo = -sr.ray.o;
+    Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+    size_t numLights = sr.world->lights.size();
+
+    for (size_t i{ 0 }; i < numLights; ++i)
+    {
+        Vector wi = sr.world->lights[i]->getDirection(sr);
+        float nDotWi = glm::dot(sr.normal, wi);
+
+        if (nDotWi > 0.0f)
+        {
+            L += mDiffuseBRDF->fn(sr, wo, wi) * sr.world->lights[i]->L(sr) *
+                nDotWi;
+        }
+    }
+    */
     ColourAlpha colourA = mTexture.getColour(sr.uvCoord);
     return colourA;// ColourAlpha{ sr.uvCoord, 0,0 };
 }
@@ -1063,6 +1199,19 @@ atlas::math::Vector Directional::getDirection([[maybe_unused]] ShadeRec& sr)
     return mDirection;
 }
 
+// ***** PointLight function members *****
+PointLight::PointLight()
+    :   mPoint({ 0,0,0 })
+{}
+PointLight::PointLight(Point const& p)
+    :   mPoint(p)
+{}
+
+atlas::math::Vector PointLight::getDirection([[maybe_unused]] ShadeRec& sr)
+{
+    return mPoint - sr.ray(sr.t);
+}
+
 // ***** Ambient function members *****
 Ambient::Ambient() : Light{}
 {}
@@ -1079,6 +1228,11 @@ Camera::Camera(Point position, Point lookAt, Vector up, float frustrumDist)
     mW = glm::normalize(position - lookAt);
     mV = glm::normalize(glm::cross(mW, up));
     mU = glm::normalize(glm::cross(mW, mV));
+}
+
+Point Camera::getEye() const
+{
+    return mEye;
 }
 
 void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
@@ -1165,10 +1319,18 @@ int main()
     triangleBvb.addVolumePoint(triangle1->getV1Point());
     triangleBvb.addVolumePoint(triangle1->getV2Point());
     triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
+    
+    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-50,0,-200}, 100 });
+    std::shared_ptr<Specular> specular = std::make_shared <Specular>();
+    specular->setDiffuseColour({ 0.3f, 0.1f, 0.4f });
+    specular->setDiffuseReflection(0.4f);
+    specular->setAmbientReflection(0.5f);
+    sphere1->setMaterial(specular);
 
-    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{400,0,-200} });
+    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{40,0,-200} });
     std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,0,-100} });
-    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,550,-200} });
+    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,350,-200} });
+    multiMesh3->setMaterial(std::make_shared<Specular>());
     std::shared_ptr<MultiMesh> multiMesh4 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{400,400,-200} });
     std::shared_ptr<MultiMesh> multiMesh5 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,-500,-100} });
     std::shared_ptr<MultiMesh> multiMesh6 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-550,550,-200} });
@@ -1180,15 +1342,18 @@ int main()
     bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
     bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
     bvhAccel->addShape(multiMesh3->getBoundingBoxPoints(), multiMesh3);
+    /*
     bvhAccel->addShape(multiMesh4->getBoundingBoxPoints(), multiMesh4);
     bvhAccel->addShape(multiMesh5->getBoundingBoxPoints(), multiMesh5);
     bvhAccel->addShape(multiMesh6->getBoundingBoxPoints(), multiMesh6);
     bvhAccel->addShape(multiMesh7->getBoundingBoxPoints(), multiMesh7);
     bvhAccel->addShape(multiMesh8->getBoundingBoxPoints(), multiMesh8);
     bvhAccel->addShape(multiMesh9->getBoundingBoxPoints(), multiMesh9);
+    */
 
     bvhAccel->generateBVH();
-    world->scene.push_back(bvhAccel);
+    world->scene.push_back(sphere1);
+    //world->scene.push_back(bvhAccel);
     /*
     world->scene.push_back(triangle1);
     world->scene.push_back(multiMesh1);
@@ -1204,16 +1369,15 @@ int main()
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
-        std::make_shared<Directional>(Directional{ {0, 0, 1024} }));
-
-    world->ambient->setColour({ 1, 1, 1 });
-    world->ambient->scaleRadiance(0.05f);
-
+        std::make_shared<PointLight>(PointLight{ {-800, 500, 1024} }));
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(4.0f);
 
-    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 300.0f };
+    world->ambient->setColour({ 1, 1, 1 });
+    world->ambient->scaleRadiance(0.5f);
 
+    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 300.0f };
+    world->camera = std::make_shared<Camera>(camera);
     // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();
 
@@ -1240,48 +1404,7 @@ int main()
     }
 
     threadPool.waitDone();
-    /*
-    Point samplePoint{}, pixelPoint{};
-    atlas::math::Ray<atlas::math::Vector> ray{ {0, 0, 0}, {0, 0, -1} };
 
-    float avg{ 1.0f / world->sampler->getNumSamples() };
-
-    for (int r{ 0 }; r < world->height; ++r)
-    {
-        for (int c{ 0 }; c < world->width; ++c)
-        {
-            Colour pixelAverage{ 0, 0, 0 };
-
-            for (int j = 0; j < world->sampler->getNumSamples(); ++j)
-            {
-                ShadeRec trace_data{};
-                trace_data.world = world;
-                trace_data.t = std::numeric_limits<float>::max();
-                samplePoint = world->sampler->sampleUnitSquare();
-                pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
-                pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
-                camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
-
-                bool hit{};
-
-                for (auto obj : world->scene)
-                {
-                    hit |= obj->hit(ray, trace_data);
-                }
-
-                if (hit)
-                {
-                    pixelAverage += trace_data.material->shade(trace_data);
-                }
-            }
-
-            world->image.push_back({ pixelAverage.r * avg,
-                                                        pixelAverage.g * avg,
-                                                        pixelAverage.b * avg });
-
-        }
-    }
-    */
     saveToFile("raytrace.bmp", world->width, world->height, world->image);
 
     float totalTime = timer.elapsed() - startTime;

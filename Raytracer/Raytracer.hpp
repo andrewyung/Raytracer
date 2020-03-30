@@ -78,6 +78,7 @@ struct World
     std::vector<Colour> image;
     std::vector<std::shared_ptr<Light>> lights;
     std::shared_ptr<Light> ambient;
+    std::shared_ptr<Camera> camera;
 
     int threadsAccessed = 0;
 };
@@ -140,6 +141,8 @@ class Camera
 {
 public:
     Camera(Point position, Point lookAt, Vector up, float frustrumDist);
+
+    Point getEye() const;
 
     void calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const;
 protected:
@@ -440,6 +443,28 @@ private:
     float mDiffuseReflection;
 };
 
+class SpecularReflection : public BRDF
+{
+public:
+    SpecularReflection();
+
+    Colour fn(ShadeRec const& sr,
+        atlas::math::Vector const& reflected,
+        atlas::math::Vector const& incoming) const override;
+
+    Colour rho(ShadeRec const& sr,
+        atlas::math::Vector const& reflected) const override;
+
+    void setSpecularCoefficient(float kd);
+    void setSpecularExp(int exp);
+    void setSpecularColour(Colour const& colour);
+
+private:
+    float mSpecularCofficient;
+    int mSpecularExp;
+    Colour mSpecularColour;
+};
+
 class Matte : public Material
 {
 public:
@@ -455,6 +480,29 @@ public:
     Colour shade(ShadeRec& sr) override;
 
 private:
+    std::shared_ptr<Lambertian> mDiffuseBRDF;
+    std::shared_ptr<Lambertian> mAmbientBRDF;
+};
+
+class Specular : public Material
+{
+public:
+    Specular();
+    Specular(float ks, float kd, float ka, Colour color);
+
+    void setSpecularCoefficient(float k);
+    void setSpecularExp(int k);
+
+    void setDiffuseReflection(float k);
+
+    void setAmbientReflection(float k);
+
+    void setDiffuseColour(Colour colour);
+
+    Colour shade(ShadeRec& sr) override;
+
+private:
+    std::shared_ptr<SpecularReflection> mSpecularBRDF;
     std::shared_ptr<Lambertian> mDiffuseBRDF;
     std::shared_ptr<Lambertian> mAmbientBRDF;
 };
@@ -481,6 +529,17 @@ public:
 
 private:
     atlas::math::Vector mDirection;
+};
+
+class PointLight : public Light
+{
+public:
+    PointLight();
+    PointLight(Point const& p);
+
+    atlas::math::Vector getDirection(ShadeRec& sr) override;
+private:
+    Point mPoint;
 };
 
 class Ambient : public Light
