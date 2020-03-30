@@ -551,14 +551,15 @@ bool Sphere::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
 // ***** Triangle function members *****
 
 Triangle::Triangle(Point p0, Point p1, Point p2, Vector2 p0UV, Vector2 p1UV, Vector2 p2UV)
-    : mV0(p0), mV1(p1), mV2(p2), mUV0(p0UV), mUV1(p1UV), mUV2(p2UV), mBarycenCoords{ 0,0,0 }
+    : mV0(p0), mV1(p1), mV2(p2), mUV0(p0UV), mUV1(p1UV), mUV2(p2UV)
 {}
 
 bool Triangle::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     ShadeRec& sr) const
 {
     float t{ std::numeric_limits<float>::max() };
-    bool intersect{ intersectRay(ray, t) };
+    Vector barycentricCoords;
+    bool intersect{ intersectRay(ray, t, barycentricCoords) };
 
     if (t < sr.t)
     {
@@ -570,7 +571,7 @@ bool Triangle::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         sr.color = mColour;
         sr.material = mMaterial;
         // barycentric coords ordered in a certain way from ray-triangle calculations
-        sr.uvCoord = (mUV1 * mBarycenCoords.x) + (mUV2 * mBarycenCoords.y) + (mUV0 * mBarycenCoords.z);
+        sr.uvCoord = (mUV1 * barycentricCoords.x) + (mUV2 * barycentricCoords.y) + (mUV0 * barycentricCoords.z);
 
         return true;
     }
@@ -614,7 +615,34 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
 
     tMin = t;
 
-    mBarycenCoords = Vector{ u, v, 1.0f - u - v };
+    return true;
+}
+
+bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin, Vector& barycentricCoords) const
+{
+    glm::vec3 v0v1 = mV1 - mV0;
+    glm::vec3 v0v2 = mV2 - mV0;
+    glm::vec3 pvec = cross(ray.d, v0v2);
+    float det = dot(v0v1, pvec);
+
+    // ray and triangle are parallel if det is close to 0
+    if (fabs(det) < 0.000001f) return false;
+    float invDet = 1.0f / det;
+
+    glm::vec3 tvec = ray.o - mV0;
+    float u = dot(tvec, pvec) * invDet;
+    if (u < 0 || u > 1) return false;
+
+    glm::vec3 qvec = cross(tvec, v0v1);
+    float v = dot(ray.d, qvec) * invDet;
+    if (v < 0 || u + v > 1) return false;
+
+    float t = dot(v0v2, qvec) * invDet;
+
+    tMin = t;
+
+    barycentricCoords = Vector{ u, v, 1.0f - u - v };
 
     return true;
 }
@@ -1115,7 +1143,7 @@ int main()
     world->width = 1000;
     world->height = 1000;
     world->background = { 0, 0, 0 };
-    world->sampler = std::make_shared<Regular>(4, 83);
+    world->sampler = std::make_shared<Jitter>(4, 83);
 
     std::shared_ptr<BVHAccel> bvhAccel = std::make_shared<BVHAccel>();
 
@@ -1132,9 +1160,11 @@ int main()
     std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
 
     bvhAccel->addShape(triangleBvb.getBoundingBoxPoints(), triangle1);
+    bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
 
     bvhAccel->generateBVH();
     world->scene.push_back(bvhAccel);
+    //world->scene.push_back(triangle1);
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(

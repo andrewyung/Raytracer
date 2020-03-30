@@ -268,10 +268,11 @@ public:
 private:
     bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
         float& tMin) const;
+    bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+        float& tMin, Vector& barycentricCoords) const;
 
     Point mV0, mV1, mV2;
     Vector2 mUV0, mUV1, mUV2;
-    mutable Vector mBarycenCoords;
 };
 
 class MultiMesh : public Shape
