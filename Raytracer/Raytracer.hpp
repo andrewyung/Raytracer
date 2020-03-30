@@ -364,7 +364,7 @@ class BVHAccel : public Shape
 public:
     BVHAccel();
 
-    void addBoundingVolume(std::vector<Point> boundingBoxPoints, std::shared_ptr<Shape> shape);
+    void addShape(std::vector<Point> boundingBoxPoints, std::shared_ptr<Shape> shape);
 
     void generateBVH();
 
@@ -390,7 +390,7 @@ private:
 
     bool mDirty;
     bool mGenerated;
-    std::vector<BVHNode> mHeirarchy;
+    mutable std::vector<BVHNode> mHeirarchy;
 };
 
 class Regular : public Sampler

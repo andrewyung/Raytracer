@@ -248,7 +248,7 @@ BVHAccel::BVHNode::BVHNode(BoundingVolumeBox bvb)
     : nodeBvb(bvb), accesed(false), leaf(false)
 {}
 
-void BVHAccel::addBoundingVolume(std::vector<Point> boundingBoxPoints, std::shared_ptr<Shape> shape)
+void BVHAccel::addShape(std::vector<Point> boundingBoxPoints, std::shared_ptr<Shape> shape)
 {
     if (boundingBoxPoints.size() != 6) return;
 
@@ -350,7 +350,48 @@ void BVHAccel::generateBVH()
 bool BVHAccel::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     ShadeRec& sr) const
 {
+    std::queue<BVHNode> queuedNodes;
+    BVHNode root = mHeirarchy[mHeirarchy.size() - 1];
+    if (root.leaf)
+    {
+        if (root.shape->hit(ray, sr))
+        {
+            // Ray intersects shape in leaf node
+            return true;
+        }
+        return false;
+    }
 
+    if (root.nodeBvb.intersects(ray))
+    {
+        queuedNodes.push(mHeirarchy[root.left]);
+        queuedNodes.push(mHeirarchy[root.right]);
+    }
+
+    bool intersects = false;
+    while (!queuedNodes.empty())
+    {
+        BVHNode node = queuedNodes.front();
+        if (node.leaf)
+        {
+            if (node.shape->hit(ray, sr))
+            {
+                // Ray intersects shape in leaf node
+                intersects = true;
+            }
+        }
+        else
+        {
+            if (node.nodeBvb.intersects(ray))
+            {
+                queuedNodes.push(mHeirarchy[node.left]);
+                queuedNodes.push(mHeirarchy[node.right]);
+            }
+        }
+        queuedNodes.pop();
+    }
+
+    return intersects;
 }
 
 bool BVHAccel::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
@@ -576,38 +617,6 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     mBarycenCoords = Vector{ u, v, 1.0f - u - v };
 
     return true;
-    /*
-    glm::vec3 v2v0 = mV2 - mV0;
-    glm::vec3 v1v0 = mV1 - mV0;
-    glm::vec3 rayv0 = ray.o - mV0;
-    glm::vec3 pvec = glm::cross(ray.d, v2v0);
-
-    float det = glm::dot(v1v0, pvec);
-    float invDet = 1.0f / det;
-
-    float u = glm::dot(rayv0, pvec) * invDet;
-
-    if (u < 0 || u > 1)
-    {
-        return false;
-    }
-
-    glm::vec3 qvec = glm::cross(rayv0, v1v0);
-
-    float v = glm::dot(ray.d, qvec) * invDet;
-
-    if (v < 0 || u + v > 1)
-    {
-        return false;
-    }
-
-    float t = glm::dot(v2v0, qvec) * invDet;
-    tMin = t;
-
-    mBarycenCoords = Vector{ u, v, 1 - u - v };
-
-    return true;
-    */
 }
 
 // ***** MultiMesh function members *****
@@ -1108,17 +1117,24 @@ int main()
     world->background = { 0, 0, 0 };
     world->sampler = std::make_shared<Regular>(4, 83);
 
+    std::shared_ptr<BVHAccel> bvhAccel = std::make_shared<BVHAccel>();
+
     std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
    
-    world->scene.push_back(
-        std::make_shared<Triangle>(Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} }));
-    world->scene[0]->setMaterial(
-        std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot"));
-        //std::make_shared<Matte>(0.50f, 0.05f, Colour{ 1, 0, 0 }));
-    world->scene[0]->setColour({ 1, 0, 0 });
-    
-    world->scene.push_back(
-        std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" }));
+    std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(   Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, 
+                                                                        Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
+    triangle1->setMaterial(std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot"));
+    BoundingVolumeBox triangleBvb(triangle1->getV0Point());
+    triangleBvb.addVolumePoint(triangle1->getV1Point());
+    triangleBvb.addVolumePoint(triangle1->getV2Point());
+    triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
+
+    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" });
+
+    bvhAccel->addShape(triangleBvb.getBoundingBoxPoints(), triangle1);
+
+    bvhAccel->generateBVH();
+    world->scene.push_back(bvhAccel);
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
