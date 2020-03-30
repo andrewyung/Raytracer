@@ -150,18 +150,28 @@ void BoundingVolumeBox::addVolumePoint(Point const& point)
     {
         mZRightPlane.setPoint(point);
     }
+
+    updateMinMaxCentroid();
+}
+
+void BoundingVolumeBox::updateMinMaxCentroid()
+{
+    xMin = mXLeftPlane.getPoint().x;
+    xMax = mXRightPlane.getPoint().x;
+
+    yMin = mYLeftPlane.getPoint().y;
+    yMax = mYRightPlane.getPoint().y;
+
+    zMin = mZLeftPlane.getPoint().z;
+    zMax = mZRightPlane.getPoint().z;
+
+    mCentroid = {   (xMin + xMax) / 2.0f,
+                    (yMin + yMax) / 2.0f,
+                    (zMin + zMax) / 2.0f, };
 }
 
 bool BoundingVolumeBox::intersects(atlas::math::Ray<Vector> const& ray)
 {
-    float xMin = mXLeftPlane.getPoint().x;
-    float xMax = mXRightPlane.getPoint().x;
-
-    float yMin = mYLeftPlane.getPoint().y;
-    float yMax = mYRightPlane.getPoint().y;
-
-    float zMin = mZLeftPlane.getPoint().z;
-    float zMax = mZRightPlane.getPoint().z;
     ShadeRec sr;
     Point hitPoint;
 
@@ -210,6 +220,142 @@ bool BoundingVolumeBox::intersects(atlas::math::Ray<Vector> const& ray)
             hitPoint.y > yMin && hitPoint.y < yMax) return true;
     }
 
+    return false;
+}
+
+Point BoundingVolumeBox::getCentroid()
+{
+    return mCentroid;
+}
+
+std::vector<Point> BoundingVolumeBox::getBoundingBoxPoints()
+{
+    return {    mXLeftPlane.getPoint(),
+                mXRightPlane.getPoint(),
+                mYLeftPlane.getPoint(),
+                mYRightPlane.getPoint(),
+                mZLeftPlane.getPoint(),
+                mZRightPlane.getPoint(),
+    };
+}
+
+// ***** BVHAccel function members *****
+BVHAccel::BVHAccel()
+    : mDirty(false), mGenerated(false)
+{}
+
+BVHAccel::BVHNode::BVHNode(BoundingVolumeBox bvb)
+    : nodeBvb(bvb), accesed(false), leaf(false)
+{}
+
+void BVHAccel::addBoundingVolume(std::vector<Point> boundingBoxPoints, std::shared_ptr<Shape> shape)
+{
+    if (boundingBoxPoints.size() != 6) return;
+
+    BoundingVolumeBox nodeBoundBox(boundingBoxPoints[0]);
+    for (size_t i{ 1 }; i < boundingBoxPoints.size(); i++)
+    {
+        nodeBoundBox.addVolumePoint(boundingBoxPoints[i]);
+    }
+
+    BVHNode node(nodeBoundBox);
+
+    node.leaf = true;
+    node.shape = shape;
+
+    mHeirarchy.push_back(node);
+}
+
+void BVHAccel::generateBVH()
+{
+    unsigned int leaves = mHeirarchy.size();
+    unsigned int nextLayerLeaves = ceil(leaves / 2);
+
+    // Find nearest extents
+    while (leaves != 1)
+    {
+        unsigned int layerEndRange = mHeirarchy.size();
+        unsigned int layerStartRange = mHeirarchy.size() - leaves;
+        for (size_t y{ 0 }; y < nextLayerLeaves; y++)
+        {
+            // find closest bounds
+            size_t leaf1Index{ 0 };
+            size_t leaf2Index{ 0 };
+            size_t i;
+            size_t k;
+            bool set = false;
+            float minCentroidDist = std::numeric_limits<float>().max();
+            for (i = { layerEndRange - 1 }; i > layerStartRange; i--)
+            {
+                if (mHeirarchy[i].accesed) continue;
+
+                for (k = { i - 1 }; k > layerStartRange; k--)
+                {
+                    if (mHeirarchy[k].accesed) continue;
+
+                    float centroidDist = distance(mHeirarchy[i].nodeBvb.getCentroid(), mHeirarchy[k].nodeBvb.getCentroid());
+                    if (centroidDist < minCentroidDist)
+                    {
+                        minCentroidDist = centroidDist;
+                        leaf1Index = i;
+                        leaf2Index = k;
+                        set = true;
+                    }
+                }
+            }
+            // These is only 1 node left so we push it onto the next layer
+            if (!set)
+            {
+                // Find unaccessed node
+                for (i = { layerEndRange - 1 }; i > layerStartRange; i--)
+                {
+                    if (!mHeirarchy[i].accesed)
+                    {
+                        mHeirarchy[i].accesed = true;
+                        mHeirarchy.push_back(mHeirarchy[i]);
+                    }
+                }
+            }
+            else
+            {
+                // Create node
+                BoundingVolumeBox leaf1Box = mHeirarchy[leaf1Index].nodeBvb;
+                BoundingVolumeBox leaf2Box = mHeirarchy[leaf2Index].nodeBvb;
+                BoundingVolumeBox newBoundVolBox(leaf1Box.getBoundingBoxPoints()[0]);
+                for (size_t k{ 1 }; k < leaf1Box.getBoundingBoxPoints().size(); k++)
+                {
+                    newBoundVolBox.addVolumePoint(leaf1Box.getBoundingBoxPoints()[k]);
+                }
+                for (size_t k{ 0 }; k < leaf2Box.getBoundingBoxPoints().size(); k++)
+                {
+                    newBoundVolBox.addVolumePoint(leaf2Box.getBoundingBoxPoints()[k]);
+                }
+                BVHNode combinedNode{ newBoundVolBox };
+                combinedNode.leaf = false;
+                combinedNode.left = leaf1Index;
+                combinedNode.right = leaf2Index;
+                mHeirarchy.push_back(combinedNode);
+
+                // Set these nodes to not be processed when finding closest bounds
+                mHeirarchy[leaf1Index].accesed = true;
+                mHeirarchy[leaf2Index].accesed = true;
+            }
+        }
+
+        leaves = nextLayerLeaves;
+        nextLayerLeaves = ceil(leaves / 2);
+    }
+}
+
+bool BVHAccel::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+    ShadeRec& sr) const
+{
+
+}
+
+bool BVHAccel::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin) const
+{
     return false;
 }
 
@@ -464,7 +610,70 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     */
 }
 
-// ***** Triangle function members *****
+// ***** MultiMesh function members *****
+MultiMesh::MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
+{
+    std::vector<std::shared_ptr<Textured>> loadedMaterials;
+
+    for (size_t i{ 0 }; i < mesh.materials.size(); i++)
+    {
+        loadedMaterials.push_back(
+            std::make_shared<Textured>(mesh.materials[i], modelSubDirName));
+    }
+    // Go through each shape
+    for (size_t i{ 0 }; i < mesh.shapes.size(); i++)
+    {
+        meshes.push_back(Mesh(mesh.shapes[i], i, loadedMaterials, modelSubDirName));
+    }
+
+    mBoundVolumeBox = std::make_unique<BoundingVolumeBox>(meshes[0].getBoundingBoxPoints()[0]);
+    for (size_t i{ 0 }; i < meshes.size(); i++)
+    {
+        std::vector<Point> boundingBoxPoints = meshes[i].getBoundingBoxPoints();
+        for (size_t k{ 0 }; k < boundingBoxPoints.size(); k++)
+        {
+            mBoundVolumeBox->addVolumePoint(boundingBoxPoints[k]);
+        }
+    }
+}
+
+bool MultiMesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+    ShadeRec& sr) const
+{
+    float t{ std::numeric_limits<float>::max() };
+
+    bool intersected = false;
+
+    bool volumeIntersect = mBoundVolumeBox->intersects(ray);
+    if (!volumeIntersect) return false;
+
+    for (size_t i{ 0 }; i < meshes.size(); i++)
+    {
+        bool intersect{ meshes[i].hit(ray, sr) };
+
+        if (intersect && sr.t < t)
+        {
+            t = sr.t;
+            intersected = true;
+        }
+    }
+
+    return intersected;
+}
+
+bool MultiMesh::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+    float& tMin) const
+{
+    return false;
+}
+
+std::vector<Point> MultiMesh::getBoundingBoxPoints()
+{
+    return mBoundVolumeBox->getBoundingBoxPoints();
+}
+
+
+// ***** Mesh function members *****
 Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
 {
     std::vector<std::shared_ptr<Textured>> loadedMaterials;
@@ -481,7 +690,7 @@ Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
 
         // Check if number of indices are summable by 3
         if (shape.indices.size() % 3 != 0) return;
-
+        
         // Go through each triangle in shape
         for (size_t k{ 0 }; k < mesh.shapes[i].indices.size() - 2; k += 3)
         {
@@ -507,6 +716,43 @@ Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName)
         mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV2Point());
     }
 }
+
+Mesh::Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<std::shared_ptr<Textured>>& loadedMaterials, std::string modelSubDirName)
+{
+    // Check if number of indices are summable by 3
+    if (shape.indices.size() % 3 != 0) return;
+
+    // Go through each triangle in shape
+    for (size_t k{ 0 }; k < shape.indices.size() - 2; k += 3)
+    {
+        atlas::utils::Vertex v0 = shape.vertices[shape.indices[k]];
+        atlas::utils::Vertex v1 = shape.vertices[shape.indices[k + 1]];
+        atlas::utils::Vertex v2 = shape.vertices[shape.indices[k + 2]];
+        mMeshTriangles.push_back(Triangle{ v0.position, v1.position, v2.position,
+                                            v0.texCoord, v1.texCoord, v2.texCoord, });
+
+        if (!shape.materialIds.empty())
+        {
+            mMeshTriangles[mMeshTriangles.size() - 1].setMaterial(
+                loadedMaterials[shape.materialIds[matIndex]]);
+        }
+    }
+
+    mBoundVolumeBox = std::make_unique<BoundingVolumeBox>(mMeshTriangles[0].getV0Point());
+    for (size_t i{ 0 }; i < mMeshTriangles.size(); i++)
+    {
+        mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV0Point());
+        mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV1Point());
+        mBoundVolumeBox->addVolumePoint(mMeshTriangles[i].getV2Point());
+    }
+}
+
+std::vector<Point> Mesh::getBoundingBoxPoints()
+{
+    return mBoundVolumeBox->getBoundingBoxPoints();
+}
+
+
 bool Mesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     ShadeRec& sr) const
 {
@@ -815,6 +1061,7 @@ void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Ca
                 ShadeRec trace_data{};
                 trace_data.world = world;
                 trace_data.t = std::numeric_limits<float>::max();
+                samplePoint = world->sampler->sampleUnitSquare();
                 pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
                 pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
                 camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
@@ -845,6 +1092,11 @@ void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Ca
 
 int main()
 {
+    using atlas::core::Timer;
+    Timer<float> timer; 
+    timer.start();       
+    float startTime = timer.elapsed();
+
     using atlas::math::Point;
     using atlas::math::Ray;
     using atlas::math::Vector;
@@ -854,7 +1106,7 @@ int main()
     world->width = 1000;
     world->height = 1000;
     world->background = { 0, 0, 0 };
-    world->sampler = std::make_shared<Jitter>(4, 83);
+    world->sampler = std::make_shared<Regular>(4, 83);
 
     std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
    
@@ -866,7 +1118,7 @@ int main()
     world->scene[0]->setColour({ 1, 0, 0 });
     
     world->scene.push_back(
-        std::make_shared<Mesh>(Mesh{ optObjMesh.value(), "teapot" }));
+        std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot" }));
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
@@ -887,7 +1139,7 @@ int main()
 
     world->image = std::vector<Colour>(world->height * world->width, Colour{ 0,0,0 });
 
-    unsigned int gridN = 20;
+    unsigned int gridN = 40;
     // Split image into grid and assign to thread
     for (size_t y{ 0 }; y < gridN; y++)
     {
@@ -950,6 +1202,10 @@ int main()
     */
     saveToFile("raytrace.bmp", world->width, world->height, world->image);
 
+    float totalTime = timer.elapsed() - startTime;
+    std::cout << "Running time is " << totalTime << std::endl;
+
+    /* save texture found in material
     std::vector<Colour> imag;
     std::shared_ptr<Textured> mat = std::static_pointer_cast<Textured>(world->scene[0]->getMaterial());
     int texSize = 200;
@@ -961,6 +1217,7 @@ int main()
         }
     }    
     saveToFile("test.bmp", texSize, texSize, imag);
+    */
 
     return 0;
 }

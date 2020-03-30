@@ -5,6 +5,7 @@
 #include <atlas/math/Random.hpp>
 #include <atlas/math/Ray.hpp>
 #include <atlas/utils/LoadObjFile.hpp>
+#include <atlas/core/Timer.hpp>
 
 #include <fmt/printf.h>
 #define STB_IMAGE_IMPLEMENTATION
@@ -39,8 +40,10 @@ void saveToFile(std::string const& filename,
 class BRDF;
 class Camera;
 class Material;
+class Textured;
 class Light;
 class Shape;
+class Mesh;
 class Sampler;
 class BoundingVolumeBox;
 
@@ -271,14 +274,33 @@ private:
     mutable Vector mBarycenCoords;
 };
 
-class Mesh : public Shape
+class MultiMesh : public Shape
 {
 public:
-    Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "");
+    MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "");
 
     bool hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         ShadeRec& sr) const;
 
+    std::vector<Point> getBoundingBoxPoints();
+private:
+    bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+        float& tMin) const;
+
+    std::vector<Mesh> meshes;
+    std::unique_ptr<BoundingVolumeBox> mBoundVolumeBox;
+};
+
+class Mesh : public Shape
+{
+public:
+    Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName = "");
+    Mesh(atlas::utils::Shape shape, unsigned int matIndex, const std::vector<std::shared_ptr<Textured>>& loadedMaterials, std::string modelSubDirName);
+
+    bool hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+        ShadeRec& sr) const;
+
+    std::vector<Point> getBoundingBoxPoints();
 private:
     bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
         float& tMin) const;
@@ -314,6 +336,9 @@ public:
     void addVolumePoint(Point const& point);
 
     bool intersects(atlas::math::Ray<Vector> const& ray);
+
+    std::vector<Point> getBoundingBoxPoints();
+    Point getCentroid();
 private:
     Plane mXLeftPlane;
     Plane mXRightPlane;
@@ -321,6 +346,51 @@ private:
     Plane mYRightPlane;
     Plane mZLeftPlane;
     Plane mZRightPlane;
+
+    float xMin;
+    float xMax;
+    float yMin;
+    float yMax;
+    float zMin;
+    float zMax;
+
+    Point mCentroid;
+
+    void updateMinMaxCentroid();
+};
+
+class BVHAccel : public Shape
+{
+public:
+    BVHAccel();
+
+    void addBoundingVolume(std::vector<Point> boundingBoxPoints, std::shared_ptr<Shape> shape);
+
+    void generateBVH();
+
+    virtual bool hit(atlas::math::Ray<atlas::math::Vector> const& ray,
+        ShadeRec& sr) const;
+
+protected:
+    virtual bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
+        float& tMin) const;
+
+private:
+    struct BVHNode
+    {
+        BVHNode(BoundingVolumeBox bvb);
+
+        bool accesed;
+        bool leaf; // node or leaf
+        std::shared_ptr<Shape> shape;
+        BoundingVolumeBox nodeBvb;
+        size_t left;
+        size_t right;
+    };
+
+    bool mDirty;
+    bool mGenerated;
+    std::vector<BVHNode> mHeirarchy;
 };
 
 class Regular : public Sampler
