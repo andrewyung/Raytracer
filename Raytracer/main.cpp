@@ -630,7 +630,7 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     float det = dot(v0v1, pvec);
 
     // ray and triangle are parallel if det is close to 0
-    if (fabs(det) < 0.000001f) return false;
+    if (det < 0.000001f) return false;
     float invDet = 1.0f / det;
 
     glm::vec3 tvec = ray.o - mV0;
@@ -644,7 +644,6 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     float t = dot(v0v2, qvec) * invDet;
 
     tMin = t;
-
     barycentricCoords = Vector{ u, v, 1.0f - u - v };
 
     return true;
@@ -947,7 +946,7 @@ void Random::generateSamples()
 }
 
 // ***** Lambertian function members *****
-Lambertian::Lambertian() : mDiffuseColour{}, mDiffuseReflection{}
+Lambertian::Lambertian() : mDiffuseColour{1,1,1}, mDiffuseReflection{0.2f}
 {}
 
 Lambertian::Lambertian(Colour diffuseColor, float diffuseReflection) :
@@ -981,7 +980,7 @@ void Lambertian::setDiffuseColour(Colour const& colour)
 
 // ***** SpecularReflection function members *****
 SpecularReflection::SpecularReflection()
-    : mSpecularColour({ 1,1,1 }), mSpecularCofficient(0.2f), mSpecularExp(16)
+    : mSpecularColour({ 1,1,1 }), mSpecularCofficient(0.3f), mSpecularExp(16)
 {}    
 
 void SpecularReflection::setSpecularCoefficient(float kd)
@@ -1085,7 +1084,11 @@ Specular::Specular() :
     mAmbientBRDF{ std::make_shared<Lambertian>() }
 {}
 
-Specular::Specular(float ks, float kd, float ka, Colour color)
+Specular::Specular(float ks, float kd, float ka, Colour color) :
+    Material{},
+    mSpecularBRDF{ std::make_shared<SpecularReflection>() },
+    mDiffuseBRDF{ std::make_shared<Lambertian>() },
+    mAmbientBRDF{ std::make_shared<Lambertian>() }
 {
     setDiffuseReflection(ks);
     setDiffuseReflection(kd);
@@ -1151,33 +1154,56 @@ Colour Specular::shade(ShadeRec& sr)
 
 // ***** Textured function members ***** 
 Textured::Textured(tinyobj::material_t const& material, std::string const& modelSubDirName) 
-    : mTexture(ImageTexture{ modelRoot + modelSubDirName + "/" + material.diffuse_texname })
+    :   mTexture(ImageTexture{ modelRoot + modelSubDirName + "/" + material.diffuse_texname }),
+        mAmbientBRDF{ std::make_shared<Lambertian>()},
+        mSpecularBRDF{ std::make_shared<SpecularReflection>()}
 {}
+
+void Textured::setSpecularReflection(float ks)
+{
+    mSpecularBRDF->setSpecularCoefficient(ks);
+}
+
+void Textured::setSpecularExp(int exp)
+{
+    mSpecularBRDF->setSpecularExp(exp);
+}
+
+void Textured::setSpecularColour(Colour col)
+{
+    mSpecularBRDF->setSpecularColour(col);
+}
 
 Colour Textured::shade(ShadeRec& sr)
 {
-    /*
     using atlas::math::Ray;
     using atlas::math::Vector;
 
-    Vector wo = -sr.ray.o;
+    Vector wo = normalize(-sr.ray.d);
     Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
     size_t numLights = sr.world->lights.size();
 
     for (size_t i{ 0 }; i < numLights; ++i)
     {
-        Vector wi = sr.world->lights[i]->getDirection(sr);
+        Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
         float nDotWi = glm::dot(sr.normal, wi);
 
         if (nDotWi > 0.0f)
         {
-            L += mDiffuseBRDF->fn(sr, wo, wi) * sr.world->lights[i]->L(sr) *
+            L += (mTexture.getColour(sr.uvCoord) / 255.0f).xyz * sr.world->lights[i]->L(sr) *
                 nDotWi;
+            L += mSpecularBRDF->fn(sr, wo, wi);
         }
     }
-    */
-    ColourAlpha colourA = mTexture.getColour(sr.uvCoord);
-    return colourA;// ColourAlpha{ sr.uvCoord, 0,0 };
+    L.x = glm::clamp<float>(L.x, 0, 1);
+    L.y = glm::clamp<float>(L.y, 0, 1);
+    L.z = glm::clamp<float>(L.z, 0, 1);
+    return L;
+}
+
+void Textured::setAmbientReflection(float ka)
+{
+    mAmbientBRDF->setDiffuseReflection(ka);
 }
 
 // ***** Directional function members *****
@@ -1241,9 +1267,94 @@ void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
     ray.d = glm::normalize(x * mV + y * mU - mFrustrumDist * mW);
 }
 
+// ******* Reflective function members *******
+Reflective::Reflective()
+    : mReflectivity(1)
+{}
+
+Colour Reflective::fn(ShadeRec const& sr,
+    atlas::math::Vector const& reflected,
+    atlas::math::Vector const& incoming) const
+{
+    return { 0,0,0 };
+}
+
+Colour Reflective::rho(ShadeRec const& sr,
+    atlas::math::Vector const& reflected) const
+{
+    if (sr.depth > maxBounceDepth) return sr.color;
+
+    atlas::math::Ray<Vector> reflectedRay;
+    Vector r = glm::reflect(-reflected, sr.normal);
+    reflectedRay.d = r;
+    reflectedRay.o = sr.ray.o + (sr.t * sr.ray.d) + (0.1f * r);
+
+    ShadeRec rec{};
+    rec.world = sr.world;
+    rec.depth = sr.depth + 1;
+    rec.t = std::numeric_limits<float>::max();
+
+    bool hit{};
+
+    rec.color = { 0,0,0 };
+    for (auto obj : rec.world->scene)
+    {
+        hit |= obj->hit(reflectedRay, rec);
+    }
+
+    if (hit)
+    {
+        rec.color = rec.material->shade(rec);
+    }
+
+    return rec.color;
+}
+
+// ******* Mirror function members *******
+Mirror::Mirror() :
+    Material{},
+    mReflectiveBRDF{ std::make_shared<Reflective>() },
+    mSpecularBRDF{ std::make_shared<SpecularReflection>() },
+    mAmbientBRDF{ std::make_shared<Lambertian>() }
+{}
+
+void Mirror::setAmbientReflection(float ka)
+{
+    mAmbientBRDF->setDiffuseReflection(ka);
+}
+void Mirror::setAmbientColour(Colour colour)
+{
+    mAmbientBRDF->setDiffuseColour(colour);
+}
+
+Colour Mirror::shade(ShadeRec& sr)
+{
+    Vector wo = normalize(-sr.ray.d);
+    Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+    L += mReflectiveBRDF->rho(sr, wo);
+    
+    size_t numLights = sr.world->lights.size();
+
+    for (size_t i{ 0 }; i < numLights; ++i)
+    {
+        Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
+        float nDotWi = glm::dot(sr.normal, wi);
+
+        if (nDotWi > 0.0f)
+        {
+            L += mSpecularBRDF->fn(sr, wo, wi);
+        }
+    }
+
+    L.x = glm::clamp<float>(L.x, 0, 1);
+    L.y = glm::clamp<float>(L.y, 0, 1);
+    L.z = glm::clamp<float>(L.z, 0, 1);
+    return L;
+}
+
 // ******* Driver Code *******
 
-void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Camera const& camera, std::shared_ptr<World> world)
+void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Camera const& camera, std::shared_ptr<World> const& world)
 {
     Point samplePoint{}, pixelPoint{};
     atlas::math::Ray<atlas::math::Vector> ray;
@@ -1255,15 +1366,15 @@ void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Ca
         for (int c{ beginBlockX }; c < endBlockX; ++c)
         {
             Colour pixelAverage{ 0, 0, 0 };
-
+            
             for (int j = 0; j < world->sampler->getNumSamples(); ++j)
             {
                 ShadeRec trace_data{};
                 trace_data.world = world;
                 trace_data.t = std::numeric_limits<float>::max();
                 samplePoint = world->sampler->sampleUnitSquare();
-                pixelPoint.x = c - 0.5f * world->width + samplePoint.x;
-                pixelPoint.y = r - 0.5f * world->height + samplePoint.y;
+                pixelPoint.x = (c - (0.5f * world->width)) + samplePoint.x;
+                pixelPoint.y = (r - (0.5f * world->height)) + samplePoint.y;
                 camera.calculateRay(pixelPoint.x, pixelPoint.y, ray);
 
                 bool hit{};
@@ -1312,25 +1423,36 @@ int main()
 
     std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
    
+    std::shared_ptr<Textured> textureMaterial = std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot");
+
+    std::shared_ptr<Specular> specular = std::make_shared <Specular>();
+    specular->setDiffuseColour({ 0.9f, 0.1f, 0.4f });
+    specular->setDiffuseReflection(2.0f);
+
+    std::shared_ptr<Mirror> mirror = std::make_shared <Mirror>();
+    mirror->setAmbientColour({ 0.753f, 0.753f, 0.753f });
+    mirror->setAmbientReflection(0.25f);
+
     std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(   Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, 
                                                                         Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
-    triangle1->setMaterial(std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot"));
     BoundingVolumeBox triangleBvb(triangle1->getV0Point());
     triangleBvb.addVolumePoint(triangle1->getV1Point());
     triangleBvb.addVolumePoint(triangle1->getV2Point());
     triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
-    
-    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-50,0,-200}, 100 });
-    std::shared_ptr<Specular> specular = std::make_shared <Specular>();
-    specular->setDiffuseColour({ 0.3f, 0.1f, 0.4f });
-    specular->setDiffuseReflection(0.4f);
-    specular->setAmbientReflection(0.5f);
+    triangle1->setMaterial(textureMaterial);
+
+    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-550,0,200}, 100 });
     sphere1->setMaterial(specular);
 
+    std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0,0,-600}, {0,0,1} });
+    plane1->setMaterial(specular);
+
+    std::shared_ptr<Sphere> sphere2 = std::make_shared<Sphere>(Sphere{ {-350,0,300}, 100 });
+    sphere2->setMaterial(mirror);
+
     std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{40,0,-200} });
-    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,0,-100} });
-    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,350,-200} });
-    multiMesh3->setMaterial(std::make_shared<Specular>());
+    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-430,-100,400} });
+    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,400,200} });
     std::shared_ptr<MultiMesh> multiMesh4 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{400,400,-200} });
     std::shared_ptr<MultiMesh> multiMesh5 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,-500,-100} });
     std::shared_ptr<MultiMesh> multiMesh6 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-550,550,-200} });
@@ -1352,10 +1474,11 @@ int main()
     */
 
     bvhAccel->generateBVH();
+    //world->scene.push_back(plane1);
     world->scene.push_back(sphere1);
-    //world->scene.push_back(bvhAccel);
+    world->scene.push_back(sphere2);
+    world->scene.push_back(bvhAccel);
     /*
-    world->scene.push_back(triangle1);
     world->scene.push_back(multiMesh1);
     world->scene.push_back(multiMesh2);
     world->scene.push_back(multiMesh3);
@@ -1371,12 +1494,12 @@ int main()
     world->lights.push_back(
         std::make_shared<PointLight>(PointLight{ {-800, 500, 1024} }));
     world->lights[0]->setColour({ 1, 1, 1 });
-    world->lights[0]->scaleRadiance(4.0f);
+    world->lights[0]->scaleRadiance(1.0f);
 
     world->ambient->setColour({ 1, 1, 1 });
     world->ambient->scaleRadiance(0.5f);
 
-    Camera camera{ Point{0,0,200}, Point{0,0,-100}, Vector{0,1,0}, 300.0f };
+    Camera camera{ Point{-1000,600,300}, Point{0,0,-100}, Vector{0,1,0}, 700.0f };
     world->camera = std::make_shared<Camera>(camera);
     // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();

@@ -48,6 +48,7 @@ class Sampler;
 class BoundingVolumeBox;
 
 static std::string modelRoot{ "C:/Users/Andrew/Documents/GitHub/Raytracer/Raytracer/Raytracer/models/" };
+static const int maxBounceDepth = 3;
 
 /** Thread safe cout class
   * Exemple of use:
@@ -92,6 +93,7 @@ struct ShadeRec
     std::shared_ptr<Material> material;
     std::shared_ptr<World> world;
     Vector2 uvCoord;
+    unsigned int depth = 0;
 };
 
 class ImageTexture
@@ -448,11 +450,11 @@ class SpecularReflection : public BRDF
 public:
     SpecularReflection();
 
-    Colour fn(ShadeRec const& sr,
+    virtual Colour fn(ShadeRec const& sr,
         atlas::math::Vector const& reflected,
         atlas::math::Vector const& incoming) const override;
 
-    Colour rho(ShadeRec const& sr,
+    virtual Colour rho(ShadeRec const& sr,
         atlas::math::Vector const& reflected) const override;
 
     void setSpecularCoefficient(float kd);
@@ -463,6 +465,22 @@ private:
     float mSpecularCofficient;
     int mSpecularExp;
     Colour mSpecularColour;
+};
+
+class Reflective : public BRDF
+{
+public:
+    Reflective();
+
+    Colour fn(ShadeRec const& sr,
+        atlas::math::Vector const& reflected,
+        atlas::math::Vector const& incoming) const override;
+
+    Colour rho(ShadeRec const& sr,
+        atlas::math::Vector const& reflected) const override;
+
+private:
+    float mReflectivity;
 };
 
 class Matte : public Material
@@ -507,14 +525,36 @@ private:
     std::shared_ptr<Lambertian> mAmbientBRDF;
 };
 
+class Mirror : public Material
+{
+public:
+    Mirror();
+
+    void setAmbientColour(Colour colour);
+    void setAmbientReflection(float ka);
+
+    Colour shade(ShadeRec& sr) override;
+private:
+    std::shared_ptr<Reflective> mReflectiveBRDF;
+    std::shared_ptr<SpecularReflection> mSpecularBRDF;
+    std::shared_ptr<Lambertian> mAmbientBRDF;
+};
+
 class Textured : public Material
 {
 public:
     Textured(tinyobj::material_t const& material, std::string const& modelSubDirName = "");
 
+    void setAmbientReflection(float ka);
+    void setSpecularReflection(float ks);
+    void setSpecularExp(int exp);
+    void setSpecularColour(Colour col);
+
     Colour shade(ShadeRec& sr) override;
     ImageTexture mTexture;
 private:
+    std::shared_ptr<SpecularReflection> mSpecularBRDF;
+    std::shared_ptr<Lambertian> mAmbientBRDF;
 };
 
 class Directional : public Light
