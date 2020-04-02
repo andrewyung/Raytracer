@@ -2,6 +2,41 @@
 
 // ******* Function Member Implementation *******
 
+// ***** Material function members *****
+
+bool Material::shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light)
+{
+
+    //Shadow ray
+    atlas::math::Ray<Vector> shadowRay;
+    shadowRay.o = light->getSourcePoint(sr);
+    Vector intersectPoint = sr.ray(sr.t);
+    shadowRay.d = normalize(intersectPoint - shadowRay.o);
+    float distToLight = glm::length(intersectPoint - shadowRay.o) - 0.01f;
+
+    ShadeRec rec{};
+    rec.world = sr.world;
+    rec.t = std::numeric_limits<float>::max();
+
+    bool shadowed{ false };
+    for (auto obj : rec.world->scene)
+    {
+        bool hit = obj->hit(shadowRay, rec);
+
+        if (hit && rec.t < distToLight)
+        {
+            shadowed = true;
+            break;
+        }
+    }
+    if (shadowed)
+    {
+        return true;
+    }
+
+    return false;
+}
+
 // ***** ThreadPool function members *****    
 
 ThreadPool::ThreadPool(unsigned int const& numThreads)
@@ -1134,6 +1169,12 @@ Colour Specular::shade(ShadeRec& sr)
 
     for (size_t i{ 0 }; i < numLights; ++i)
     {
+        // If shadowed from light then skip
+        if (shadowed(sr, sr.world->lights[i]))
+        {
+            continue;
+        }
+
         Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
         float nDotWi = glm::dot(sr.normal, wi);
 
@@ -1185,6 +1226,12 @@ Colour Textured::shade(ShadeRec& sr)
 
     for (size_t i{ 0 }; i < numLights; ++i)
     {
+        // If shadowed from light then skip
+        if (shadowed(sr, sr.world->lights[i]))
+        {
+            continue;
+        }
+
         Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
         float nDotWi = glm::dot(sr.normal, wi);
 
@@ -1220,9 +1267,13 @@ void Directional::setDirection(atlas::math::Vector const& d)
     mDirection = glm::normalize(d);
 }
 
-atlas::math::Vector Directional::getDirection([[maybe_unused]] ShadeRec& sr)
+atlas::math::Vector Directional::getDirection([[maybe_unused]] ShadeRec const& sr)
 {
     return mDirection;
+}
+atlas::math::Vector Directional::getSourcePoint([[maybe_unused]] ShadeRec const& sr)
+{
+    return sr.ray(sr.t) + (1000000.0f * mDirection);
 }
 
 // ***** PointLight function members *****
@@ -1233,16 +1284,26 @@ PointLight::PointLight(Point const& p)
     :   mPoint(p)
 {}
 
-atlas::math::Vector PointLight::getDirection([[maybe_unused]] ShadeRec& sr)
+atlas::math::Vector PointLight::getDirection([[maybe_unused]] ShadeRec const& sr)
 {
     return mPoint - sr.ray(sr.t);
+}
+
+atlas::math::Vector PointLight::getSourcePoint([[maybe_unused]] ShadeRec const& sr)
+{
+    return mPoint;
 }
 
 // ***** Ambient function members *****
 Ambient::Ambient() : Light{}
 {}
 
-atlas::math::Vector Ambient::getDirection([[maybe_unused]] ShadeRec& sr)
+atlas::math::Vector Ambient::getDirection([[maybe_unused]] ShadeRec const& sr)
+{
+    return atlas::math::Vector{ 0.0f };
+}
+
+atlas::math::Vector Ambient::getSourcePoint([[maybe_unused]] ShadeRec const& sr)
 {
     return atlas::math::Vector{ 0.0f };
 }
@@ -1291,7 +1352,7 @@ Colour Reflective::rho(ShadeRec const& sr,
 
     ShadeRec rec{};
     rec.world = sr.world;
-    rec.depth = sr.depth + 1;
+    rec.depth = sr.depth + 1; 
     rec.t = std::numeric_limits<float>::max();
 
     bool hit{};
@@ -1429,6 +1490,10 @@ int main()
     specular->setDiffuseColour({ 0.9f, 0.1f, 0.4f });
     specular->setDiffuseReflection(2.0f);
 
+    std::shared_ptr<Specular> planeSpecular = std::make_shared <Specular>();
+    planeSpecular->setDiffuseColour({ 0.8f, 0.8f, 0.8f });
+    planeSpecular->setDiffuseReflection(5.0f);
+
     std::shared_ptr<Mirror> mirror = std::make_shared <Mirror>();
     mirror->setAmbientColour({ 0.753f, 0.753f, 0.753f });
     mirror->setAmbientReflection(0.25f);
@@ -1441,14 +1506,17 @@ int main()
     triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
     triangle1->setMaterial(textureMaterial);
 
-    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-550,0,200}, 100 });
+    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-550,0,-150}, 100 });
     sphere1->setMaterial(specular);
 
-    std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0,0,-600}, {0,0,1} });
-    plane1->setMaterial(specular);
+    std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0,-150,-600}, {0,1,0} });
+    plane1->setMaterial(planeSpecular);
 
     std::shared_ptr<Sphere> sphere2 = std::make_shared<Sphere>(Sphere{ {-350,0,300}, 100 });
     sphere2->setMaterial(mirror);
+
+    std::shared_ptr<Sphere> sphere3 = std::make_shared<Sphere>(Sphere{ {-250,0,80}, 100 });
+    sphere3->setMaterial(mirror);
 
     std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{40,0,-200} });
     std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-430,-100,400} });
@@ -1474,9 +1542,10 @@ int main()
     */
 
     bvhAccel->generateBVH();
-    //world->scene.push_back(plane1);
+    world->scene.push_back(plane1);
     world->scene.push_back(sphere1);
     world->scene.push_back(sphere2);
+    world->scene.push_back(sphere3);
     world->scene.push_back(bvhAccel);
     /*
     world->scene.push_back(multiMesh1);
@@ -1499,7 +1568,7 @@ int main()
     world->ambient->setColour({ 1, 1, 1 });
     world->ambient->scaleRadiance(0.5f);
 
-    Camera camera{ Point{-1000,600,300}, Point{0,0,-100}, Vector{0,1,0}, 700.0f };
+    Camera camera{ Point{-1000,300,300}, Point{0,0,-100}, Vector{0,1,0}, 700.0f };
     world->camera = std::make_shared<Camera>(camera);
     // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();

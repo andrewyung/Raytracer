@@ -222,12 +222,15 @@ public:
     virtual ~Material() = default;
 
     virtual Colour shade(ShadeRec& sr) = 0;
+
+    bool shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light);
 };
 
 class Light
 {
 public:
-    virtual atlas::math::Vector getDirection(ShadeRec& sr) = 0;
+    virtual atlas::math::Vector getDirection(ShadeRec const& sr) = 0;
+    virtual atlas::math::Vector getSourcePoint(ShadeRec const& sr) = 0;
 
     virtual Colour L(ShadeRec& sr);
 
@@ -565,7 +568,8 @@ public:
 
     void setDirection(atlas::math::Vector const& d);
 
-    atlas::math::Vector getDirection(ShadeRec& sr) override;
+    atlas::math::Vector getDirection(ShadeRec const& sr) override;
+    atlas::math::Vector getSourcePoint(ShadeRec const& sr) override;
 
 private:
     atlas::math::Vector mDirection;
@@ -577,7 +581,8 @@ public:
     PointLight();
     PointLight(Point const& p);
 
-    atlas::math::Vector getDirection(ShadeRec& sr) override;
+    atlas::math::Vector getDirection(ShadeRec const& sr) override;
+    atlas::math::Vector getSourcePoint(ShadeRec const& sr) override;
 private:
     Point mPoint;
 };
@@ -587,8 +592,8 @@ class Ambient : public Light
 public:
     Ambient();
 
-    atlas::math::Vector getDirection(ShadeRec& sr) override;
-
+    atlas::math::Vector getDirection(ShadeRec const& sr) override;
+    atlas::math::Vector getSourcePoint(ShadeRec const& sr) override;
 private:
     atlas::math::Vector mDirection;
 };
