@@ -481,9 +481,22 @@ public:
 
     Colour rho(ShadeRec const& sr,
         atlas::math::Vector const& reflected) const override;
+};
+
+class Transparency : public BRDF
+{
+public:
+    Transparency(float internalRefraction = 1.31f); // 1.31 is ice
+
+    Colour fn(ShadeRec const& sr,
+        atlas::math::Vector const& reflected,
+        atlas::math::Vector const& incoming) const override;
+
+    Colour rho(ShadeRec const& sr,
+        atlas::math::Vector const& reflected) const override;
 
 private:
-    float mReflectivity;
+    float mInternalRefraction;
 };
 
 class Matte : public Material
@@ -541,6 +554,16 @@ private:
     std::shared_ptr<Reflective> mReflectiveBRDF;
     std::shared_ptr<SpecularReflection> mSpecularBRDF;
     std::shared_ptr<Lambertian> mAmbientBRDF;
+};
+
+class SemiTransparent : public Material
+{
+public:
+    SemiTransparent();
+
+    Colour shade(ShadeRec& sr) override;
+private:
+    std::shared_ptr<Transparency> mTransparencyBRDF;
 };
 
 class Textured : public Material

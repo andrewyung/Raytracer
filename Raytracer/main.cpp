@@ -1330,7 +1330,6 @@ void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
 
 // ******* Reflective function members *******
 Reflective::Reflective()
-    : mReflectivity(1)
 {}
 
 Colour Reflective::fn(ShadeRec const& sr,
@@ -1413,6 +1412,34 @@ Colour Mirror::shade(ShadeRec& sr)
     return L;
 }
 
+// ****** Transparency function members ******
+Transparency::Transparency(float instalRefraction)
+    :   mInternalRefraction{ instalRefraction }
+{}
+
+Colour Transparency::fn(ShadeRec const& sr,
+    atlas::math::Vector const& reflected,
+    atlas::math::Vector const& incoming) const
+{
+
+}
+
+Colour Transparency::rho(ShadeRec const& sr,
+    atlas::math::Vector const& reflected) const
+{
+
+}
+
+// ****** SemiTransparent function members ******
+
+SemiTransparent::SemiTransparent()
+    : mTransparencyBRDF{std::make_shared<Transparency>()}
+{}
+
+Colour SemiTransparent::shade(ShadeRec& sr)
+{
+}
+
 // ******* Driver Code *******
 
 void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Camera const& camera, std::shared_ptr<World> const& world)
@@ -1491,8 +1518,9 @@ int main()
     specular->setDiffuseReflection(2.0f);
 
     std::shared_ptr<Specular> planeSpecular = std::make_shared <Specular>();
-    planeSpecular->setDiffuseColour({ 0.8f, 0.8f, 0.8f });
-    planeSpecular->setDiffuseReflection(5.0f);
+    planeSpecular->setDiffuseColour({ 0.7f, 0.7f, 0.7f });
+    planeSpecular->setAmbientReflection(0.4f);
+
 
     std::shared_ptr<Mirror> mirror = std::make_shared <Mirror>();
     mirror->setAmbientColour({ 0.753f, 0.753f, 0.753f });
@@ -1500,11 +1528,19 @@ int main()
 
     std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(   Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, 
                                                                         Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
-    BoundingVolumeBox triangleBvb(triangle1->getV0Point());
-    triangleBvb.addVolumePoint(triangle1->getV1Point());
-    triangleBvb.addVolumePoint(triangle1->getV2Point());
-    triangleBvb.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
-    triangle1->setMaterial(textureMaterial);
+    BoundingVolumeBox triangleBvb1(triangle1->getV0Point());
+    triangleBvb1.addVolumePoint(triangle1->getV1Point());
+    triangleBvb1.addVolumePoint(triangle1->getV2Point());
+    triangleBvb1.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
+    triangle1->setMaterial(mirror);
+
+    std::shared_ptr<Triangle> triangle2 = std::make_shared<Triangle>(Triangle{ Point{200, 0, 0}, Point{200, 0, 400}, Point{200, 400, 200},
+                                                                        Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
+    BoundingVolumeBox triangleBvb2(triangle2->getV0Point());
+    triangleBvb2.addVolumePoint(triangle2->getV1Point());
+    triangleBvb2.addVolumePoint(triangle2->getV2Point());
+    triangleBvb2.addVolumePoint(triangle2->getV2Point() + Vector{ 0, 0, 1 });
+    triangle2->setMaterial(textureMaterial);
 
     std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-550,0,-150}, 100 });
     sphere1->setMaterial(specular);
@@ -1521,25 +1557,12 @@ int main()
     std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{40,0,-200} });
     std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-430,-100,400} });
     std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,400,200} });
-    std::shared_ptr<MultiMesh> multiMesh4 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{400,400,-200} });
-    std::shared_ptr<MultiMesh> multiMesh5 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-500,-500,-100} });
-    std::shared_ptr<MultiMesh> multiMesh6 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-550,550,-200} });
-    std::shared_ptr<MultiMesh> multiMesh7 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-400,250,-200} });
-    std::shared_ptr<MultiMesh> multiMesh8 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-400,-100,-100} });
-    std::shared_ptr<MultiMesh> multiMesh9 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{550,550,-200} });
-    
-    bvhAccel->addShape(triangleBvb.getBoundingBoxPoints(), triangle1);
+
+    bvhAccel->addShape(triangleBvb1.getBoundingBoxPoints(), triangle1);
+    bvhAccel->addShape(triangleBvb2.getBoundingBoxPoints(), triangle2);
     bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
     bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
     bvhAccel->addShape(multiMesh3->getBoundingBoxPoints(), multiMesh3);
-    /*
-    bvhAccel->addShape(multiMesh4->getBoundingBoxPoints(), multiMesh4);
-    bvhAccel->addShape(multiMesh5->getBoundingBoxPoints(), multiMesh5);
-    bvhAccel->addShape(multiMesh6->getBoundingBoxPoints(), multiMesh6);
-    bvhAccel->addShape(multiMesh7->getBoundingBoxPoints(), multiMesh7);
-    bvhAccel->addShape(multiMesh8->getBoundingBoxPoints(), multiMesh8);
-    bvhAccel->addShape(multiMesh9->getBoundingBoxPoints(), multiMesh9);
-    */
 
     bvhAccel->generateBVH();
     world->scene.push_back(plane1);
@@ -1547,21 +1570,10 @@ int main()
     world->scene.push_back(sphere2);
     world->scene.push_back(sphere3);
     world->scene.push_back(bvhAccel);
-    /*
-    world->scene.push_back(multiMesh1);
-    world->scene.push_back(multiMesh2);
-    world->scene.push_back(multiMesh3);
-    world->scene.push_back(multiMesh4);
-    world->scene.push_back(multiMesh5);
-    world->scene.push_back(multiMesh6);
-    world->scene.push_back(multiMesh7);
-    world->scene.push_back(multiMesh8);
-    world->scene.push_back(multiMesh9);
-    */
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
-        std::make_shared<PointLight>(PointLight{ {-800, 500, 1024} }));
+        std::make_shared<PointLight>(PointLight{ {-800, 800, 1024} }));
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(1.0f);
 
