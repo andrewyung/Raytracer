@@ -49,6 +49,7 @@ class BoundingVolumeBox;
 
 static std::string modelRoot{ "C:/Users/Andrew/Documents/GitHub/Raytracer/Raytracer/Raytracer/models/" };
 static const int maxBounceDepth = 3;
+static const int lightAttenuationFactor = 500000;
 
 /** Thread safe cout class
   * Exemple of use:
@@ -94,6 +95,9 @@ struct ShadeRec
     std::shared_ptr<World> world;
     Vector2 uvCoord;
     unsigned int depth = 0;
+    float indexOfRefraction = 1;
+
+    bool shadowRay = false;
 };
 
 class ImageTexture
@@ -223,7 +227,9 @@ public:
 
     virtual Colour shade(ShadeRec& sr) = 0;
 
-    bool shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light);
+    float shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light);
+
+    bool mTransparent = false;
 };
 
 class Light
@@ -486,7 +492,9 @@ public:
 class Transparency : public BRDF
 {
 public:
-    Transparency(float internalRefraction = 1.31f); // 1.31 is ice
+    Transparency(float internalRefraction = 1.05f); // 1.31 is ice
+
+    void setIndexOfRefraction(float index);
 
     Colour fn(ShadeRec const& sr,
         atlas::math::Vector const& reflected,
@@ -496,7 +504,9 @@ public:
         atlas::math::Vector const& reflected) const override;
 
 private:
-    float mInternalRefraction;
+    Vector refraction(ShadeRec const& sr, float& enterIndexOfRefract) const;
+
+    float mIndexOfRefraction;
 };
 
 class Matte : public Material
@@ -556,10 +566,12 @@ private:
     std::shared_ptr<Lambertian> mAmbientBRDF;
 };
 
-class SemiTransparent : public Material
+class Refraction : public Material
 {
 public:
-    SemiTransparent();
+    Refraction();
+
+    void setIndexOfRefraction(float index);
 
     Colour shade(ShadeRec& sr) override;
 private:

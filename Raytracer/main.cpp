@@ -4,9 +4,8 @@
 
 // ***** Material function members *****
 
-bool Material::shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light)
+float Material::shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light)
 {
-
     //Shadow ray
     atlas::math::Ray<Vector> shadowRay;
     shadowRay.o = light->getSourcePoint(sr);
@@ -17,24 +16,30 @@ bool Material::shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light)
     ShadeRec rec{};
     rec.world = sr.world;
     rec.t = std::numeric_limits<float>::max();
+    rec.shadowRay = true;
 
     bool shadowed{ false };
+    bool transparentOnly{ true };
     for (auto obj : rec.world->scene)
     {
         bool hit = obj->hit(shadowRay, rec);
 
         if (hit && rec.t < distToLight)
         {
+            transparentOnly &= rec.material->mTransparent;
             shadowed = true;
-            break;
         }
     }
     if (shadowed)
     {
-        return true;
+        if (transparentOnly)
+        {
+            return 0.8f;
+        }
+        return 0;
     }
 
-    return false;
+    return 1;
 }
 
 // ***** ThreadPool function members *****    
@@ -892,8 +897,8 @@ bool Plane::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     float denom = glm::dot(mNormal, ray.d); 
     if (abs(denom) < 0.00001f) return false;
 
-    float t = abs(glm::dot((mPoint - ray.o), mNormal) / denom);
-    if (t < tMin)
+    float t = (glm::dot((mPoint - ray.o), mNormal) / denom);
+    if (t >= 0 && t < tMin)
     {
         tMin = t;
         return true;
@@ -981,7 +986,7 @@ void Random::generateSamples()
 }
 
 // ***** Lambertian function members *****
-Lambertian::Lambertian() : mDiffuseColour{1,1,1}, mDiffuseReflection{0.2f}
+Lambertian::Lambertian() : mDiffuseColour{1,1,1}, mDiffuseReflection{0.5f}
 {}
 
 Lambertian::Lambertian(Colour diffuseColor, float diffuseReflection) :
@@ -1169,11 +1174,7 @@ Colour Specular::shade(ShadeRec& sr)
 
     for (size_t i{ 0 }; i < numLights; ++i)
     {
-        // If shadowed from light then skip
-        if (shadowed(sr, sr.world->lights[i]))
-        {
-            continue;
-        }
+        float shadowAttenuation = shadowed(sr, sr.world->lights[i]);
 
         Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
         float nDotWi = glm::dot(sr.normal, wi);
@@ -1181,8 +1182,8 @@ Colour Specular::shade(ShadeRec& sr)
         if (nDotWi > 0.0f)
         {
             L += mDiffuseBRDF->fn(sr, wo, wi) * sr.world->lights[i]->L(sr) *
-               nDotWi;
-            L += mSpecularBRDF->fn(sr, wo, wi);
+               nDotWi * shadowAttenuation;
+            L += mSpecularBRDF->fn(sr, wo, wi) * shadowAttenuation;
         }
     }
 
@@ -1220,26 +1221,25 @@ Colour Textured::shade(ShadeRec& sr)
     using atlas::math::Ray;
     using atlas::math::Vector;
 
+    Colour texColour = (mTexture.getColour(sr.uvCoord) / 255.0f).xyz;
     Vector wo = normalize(-sr.ray.d);
-    Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+    Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr) * texColour;
     size_t numLights = sr.world->lights.size();
 
     for (size_t i{ 0 }; i < numLights; ++i)
     {
-        // If shadowed from light then skip
-        if (shadowed(sr, sr.world->lights[i]))
-        {
-            continue;
-        }
+        float shadowAttenuation = shadowed(sr, sr.world->lights[i]);
 
         Vector wi = normalize(sr.world->lights[i]->getDirection(sr));
         float nDotWi = glm::dot(sr.normal, wi);
 
         if (nDotWi > 0.0f)
         {
-            L += (mTexture.getColour(sr.uvCoord) / 255.0f).xyz * sr.world->lights[i]->L(sr) *
-                nDotWi;
-            L += mSpecularBRDF->fn(sr, wo, wi);
+            float lightToSurfaceDist = glm::length(sr.world->lights[i]->getSourcePoint(sr) - sr.ray(sr.t));
+            float attenuation = lightAttenuationFactor / (lightToSurfaceDist * lightToSurfaceDist);
+            L += texColour * sr.world->lights[i]->L(sr) *
+                nDotWi * attenuation * shadowAttenuation;
+            L += mSpecularBRDF->fn(sr, wo, wi) * attenuation * shadowAttenuation;
         }
     }
     L.x = glm::clamp<float>(L.x, 0, 1);
@@ -1344,6 +1344,8 @@ Colour Reflective::rho(ShadeRec const& sr,
 {
     if (sr.depth > maxBounceDepth) return sr.color;
 
+    if (sr.shadowRay) return { 0,0,0 };
+
     atlas::math::Ray<Vector> reflectedRay;
     Vector r = glm::reflect(-reflected, sr.normal);
     reflectedRay.d = r;
@@ -1391,6 +1393,7 @@ Colour Mirror::shade(ShadeRec& sr)
 {
     Vector wo = normalize(-sr.ray.d);
     Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+   
     L += mReflectiveBRDF->rho(sr, wo);
     
     size_t numLights = sr.world->lights.size();
@@ -1414,30 +1417,107 @@ Colour Mirror::shade(ShadeRec& sr)
 
 // ****** Transparency function members ******
 Transparency::Transparency(float instalRefraction)
-    :   mInternalRefraction{ instalRefraction }
+    :   mIndexOfRefraction{ instalRefraction }
 {}
 
 Colour Transparency::fn(ShadeRec const& sr,
     atlas::math::Vector const& reflected,
     atlas::math::Vector const& incoming) const
 {
-
+    return { 0,0,0 };
 }
 
 Colour Transparency::rho(ShadeRec const& sr,
     atlas::math::Vector const& reflected) const
 {
+    if (sr.depth > maxBounceDepth) return sr.color;
 
+    if (sr.shadowRay)  return { 0,0,0 };
+
+    ShadeRec rec{};
+
+    atlas::math::Ray<Vector> refractedRay;
+    float enterIndexOfRefract = mIndexOfRefraction;
+    Vector r = refraction(sr, enterIndexOfRefract);
+    rec.indexOfRefraction = enterIndexOfRefract;
+    refractedRay.d = r;
+    refractedRay.o = sr.ray.o + (sr.t * sr.ray.d) + (0.1f * r);
+
+    rec.world = sr.world;
+    rec.depth = sr.depth + 1;
+    rec.t = std::numeric_limits<float>::max();
+
+    bool hit{};
+
+    rec.color = { 0,0,0 };
+    for (auto obj : rec.world->scene)
+    {
+        hit |= obj->hit(refractedRay, rec);
+    }
+
+    if (hit)
+    {
+        rec.color = rec.material->shade(rec);
+    }
+
+    return rec.color;
+}
+
+void Transparency::setIndexOfRefraction(float index)
+{
+    mIndexOfRefraction = index;
+}
+
+Vector Transparency::refraction(ShadeRec const& sr, float& enterIndexOfRefract) const
+{
+    float cosi = glm::clamp<float>(dot(sr.ray.d, sr.normal), -1.0f, 1.0f);
+
+    Vector n = sr.normal;
+
+    // Is ray going into or out of volume
+    if (cosi < 0) 
+    { 
+        cosi = -cosi; 
+    }
+    else 
+    { 
+        n = -sr.normal; 
+    }
+    float eta = sr.indexOfRefraction / enterIndexOfRefract;
+    float k = 1 - eta * eta * (1 - cosi * cosi);
+
+    // Is total internal reflection
+    if (k < 0)
+    {
+        enterIndexOfRefract = sr.indexOfRefraction;
+        return glm::reflect(sr.ray.d, n);
+    }
+
+    return normalize(eta * sr.ray.d + (eta * cosi - sqrtf(k)) * n);
 }
 
 // ****** SemiTransparent function members ******
 
-SemiTransparent::SemiTransparent()
-    : mTransparencyBRDF{std::make_shared<Transparency>()}
-{}
-
-Colour SemiTransparent::shade(ShadeRec& sr)
+Refraction::Refraction()
+    : mTransparencyBRDF{ std::make_shared<Transparency>() }
 {
+    mTransparent = true;
+}
+
+void Refraction::setIndexOfRefraction(float index)
+{
+    mTransparencyBRDF->setIndexOfRefraction(index);
+}
+
+Colour Refraction::shade(ShadeRec& sr)
+{
+    Vector wo = normalize(-sr.ray.d);
+    Colour L = mTransparencyBRDF->rho(sr, wo);
+
+    L.x = glm::clamp<float>(L.x, 0, 1);
+    L.y = glm::clamp<float>(L.y, 0, 1);
+    L.z = glm::clamp<float>(L.z, 0, 1);
+    return L;
 }
 
 // ******* Driver Code *******
@@ -1512,19 +1592,34 @@ int main()
     std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
    
     std::shared_ptr<Textured> textureMaterial = std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot");
+    textureMaterial->setAmbientReflection(0.7f);
 
     std::shared_ptr<Specular> specular = std::make_shared <Specular>();
     specular->setDiffuseColour({ 0.9f, 0.1f, 0.4f });
     specular->setDiffuseReflection(2.0f);
 
-    std::shared_ptr<Specular> planeSpecular = std::make_shared <Specular>();
-    planeSpecular->setDiffuseColour({ 0.7f, 0.7f, 0.7f });
-    planeSpecular->setAmbientReflection(0.4f);
+    std::shared_ptr<Specular> planeSpecular1 = std::make_shared <Specular>();
+    planeSpecular1->setDiffuseColour({ 1.0f, 0.1f, 0.1f });
+    planeSpecular1->setAmbientReflection(1.0f);
+
+    std::shared_ptr<Specular> planeSpecular2 = std::make_shared <Specular>();
+    planeSpecular2->setDiffuseColour({ 0.1f, 0.1f, 1.0f });
+    planeSpecular2->setAmbientReflection(1.0f);
+
+    std::shared_ptr<Specular> planeSpecular3 = std::make_shared <Specular>();
+    planeSpecular3->setDiffuseColour({ 0.85f, 0.85f, 0.85f });
+    planeSpecular3->setAmbientReflection(1.0f);
+
+    std::shared_ptr<Specular> planeSpecular4 = std::make_shared <Specular>();
+    planeSpecular4->setDiffuseColour({ 0.1f, 1.0f, 0.1f });
+    planeSpecular4->setAmbientReflection(1.0f);
 
 
     std::shared_ptr<Mirror> mirror = std::make_shared <Mirror>();
     mirror->setAmbientColour({ 0.753f, 0.753f, 0.753f });
     mirror->setAmbientReflection(0.25f);
+
+    std::shared_ptr<Refraction> refract = std::make_shared <Refraction>();
 
     std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(   Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, 
                                                                         Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
@@ -1545,14 +1640,27 @@ int main()
     std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-550,0,-150}, 100 });
     sphere1->setMaterial(specular);
 
-    std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0,-150,-600}, {0,1,0} });
-    plane1->setMaterial(planeSpecular);
-
     std::shared_ptr<Sphere> sphere2 = std::make_shared<Sphere>(Sphere{ {-350,0,300}, 100 });
     sphere2->setMaterial(mirror);
-
     std::shared_ptr<Sphere> sphere3 = std::make_shared<Sphere>(Sphere{ {-250,0,80}, 100 });
     sphere3->setMaterial(mirror);
+
+    std::shared_ptr<Sphere> sphere4 = std::make_shared<Sphere>(Sphere{ {-650, 150,0}, 100 });
+    sphere4->setMaterial(refract);
+
+    std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0, -100, 0}, {0,1,0} });
+    plane1->setMaterial(planeSpecular3);
+    std::shared_ptr<Plane> plane3 = std::make_shared<Plane>(Plane{ {0, 550, 0}, {0,-1,0} });
+    plane3->setMaterial(planeSpecular3);
+    std::shared_ptr<Plane> plane4 = std::make_shared<Plane>(Plane{ {-1050, 0, 0}, {1,0,0} });
+    plane4->setMaterial(planeSpecular3);
+
+    std::shared_ptr<Plane> plane2 = std::make_shared<Plane>(Plane{ {350, 0, 0}, {-1,0,0} });
+    plane2->setMaterial(planeSpecular4);
+    std::shared_ptr<Plane> plane5 = std::make_shared<Plane>(Plane{ {0,0,-450}, {0,0,1} });
+    plane5->setMaterial(planeSpecular1);
+    std::shared_ptr<Plane> plane6 = std::make_shared<Plane>(Plane{ {0,0,450}, {0,0,-1} });
+    plane6->setMaterial(planeSpecular2);
 
     std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{40,0,-200} });
     std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-430,-100,400} });
@@ -1566,21 +1674,27 @@ int main()
 
     bvhAccel->generateBVH();
     world->scene.push_back(plane1);
+    world->scene.push_back(plane2);
+    world->scene.push_back(plane3);
+    world->scene.push_back(plane4);
+    world->scene.push_back(plane5);
+    world->scene.push_back(plane6);
     world->scene.push_back(sphere1);
     world->scene.push_back(sphere2);
     world->scene.push_back(sphere3);
+    world->scene.push_back(sphere4);
     world->scene.push_back(bvhAccel);
 
     world->ambient = std::make_shared<Ambient>();
     world->lights.push_back(
-        std::make_shared<PointLight>(PointLight{ {-800, 800, 1024} }));
+        std::make_shared<PointLight>(PointLight{ {-1000, 300, -400} }));
     world->lights[0]->setColour({ 1, 1, 1 });
     world->lights[0]->scaleRadiance(1.0f);
 
     world->ambient->setColour({ 1, 1, 1 });
     world->ambient->scaleRadiance(0.5f);
 
-    Camera camera{ Point{-1000,300,300}, Point{0,0,-100}, Vector{0,1,0}, 700.0f };
+    Camera camera{ Point{-1000,300,250}, Point{0,0,-100}, Vector{0,1,0}, 700.0f };
     world->camera = std::make_shared<Camera>(camera);
     // Tested on 8 threads
     unsigned int numThreads = std::thread::hardware_concurrency();
