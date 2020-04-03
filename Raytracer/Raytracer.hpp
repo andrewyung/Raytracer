@@ -492,7 +492,7 @@ public:
 class Transparency : public BRDF
 {
 public:
-    Transparency(float internalRefraction = 1.05f); // 1.31 is ice
+    Transparency(float internalRefraction = 1.7f);
 
     void setIndexOfRefraction(float index);
 

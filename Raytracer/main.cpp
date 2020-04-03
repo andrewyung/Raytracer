@@ -15,13 +15,13 @@ float Material::shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light
 
     ShadeRec rec{};
     rec.world = sr.world;
-    rec.t = std::numeric_limits<float>::max();
     rec.shadowRay = true;
 
     bool shadowed{ false };
     bool transparentOnly{ true };
     for (auto obj : rec.world->scene)
     {
+        rec.t = distToLight;
         bool hit = obj->hit(shadowRay, rec);
 
         if (hit && rec.t < distToLight)
@@ -1432,7 +1432,7 @@ Colour Transparency::rho(ShadeRec const& sr,
 {
     if (sr.depth > maxBounceDepth) return sr.color;
 
-    if (sr.shadowRay)  return { 0,0,0 };
+    if (sr.shadowRay) return { 0,0,0 };
 
     ShadeRec rec{};
 
@@ -1645,7 +1645,7 @@ int main()
     std::shared_ptr<Sphere> sphere3 = std::make_shared<Sphere>(Sphere{ {-250,0,80}, 100 });
     sphere3->setMaterial(mirror);
 
-    std::shared_ptr<Sphere> sphere4 = std::make_shared<Sphere>(Sphere{ {-650, 150,0}, 100 });
+    std::shared_ptr<Sphere> sphere4 = std::make_shared<Sphere>(Sphere{ {-250, 180, 150}, 100 });
     sphere4->setMaterial(refract);
 
     std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0, -100, 0}, {0,1,0} });
