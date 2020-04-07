@@ -259,6 +259,7 @@ public:
     bool hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         ShadeRec& sr) const;
 
+    std::vector<Point> getBoundingBoxPoints();
 private:
     bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
         float& tMin) const;
@@ -279,6 +280,8 @@ public:
     Vector getV0Point() const;
     Vector getV1Point() const;
     Vector getV2Point() const;
+
+    std::vector<Point> getBoundingBoxPoints();
 private:
     bool intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
         float& tMin) const;
@@ -629,6 +632,9 @@ public:
 
     atlas::math::Vector getDirection(ShadeRec const& sr) override;
     atlas::math::Vector getSourcePoint(ShadeRec const& sr) override;
+
+    Colour L(ShadeRec& sr) override;
 private:
-    atlas::math::Vector mDirection;
+    unsigned int mOcclusionSamples = 4; // n x n
+    float mOcclusionRayDist = 1000;
 };

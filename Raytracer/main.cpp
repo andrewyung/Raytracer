@@ -1,5 +1,38 @@
 #include "Raytracer.hpp"
 
+// Weighted cosine hemisphere sampling
+Vector sampleHemisphere(float inX, float inY)
+{
+    /*
+    const float r = sqrt(inX);
+    const float theta = 2 * glm::pi<float>() * inY;
+
+    const float x = r * cos(theta);
+    const float y = r * sin(theta);
+
+    return Vector{ x, sqrt(glm::max(0.0f, 1 - inX)), y };
+    */
+    const float r = sqrt(1.0f - inX * inX);
+    const float phi = 2 * glm::pi<float>() * inY;
+
+    return Vector{ cos(phi) * r, inX, sin(phi) * r };
+}
+
+glm::mat4 rotationMatToSpace(Vector up)
+{
+    Vector w = normalize(up);
+    // Using jittered up
+    Vector u = normalize(cross(w, { 0.053f, 1.0f, 0.0332f }));
+    Vector v = cross(w, u);
+
+    glm::mat4 rotationMatrix(1.0f);
+    rotationMatrix[0] = { u, 0 };
+    rotationMatrix[1] = { w, 0 };
+    rotationMatrix[2] = { v, 0 };
+
+    return rotationMatrix;
+}
+
 // ******* Function Member Implementation *******
 
 // ***** Material function members *****
@@ -536,6 +569,13 @@ Sphere::Sphere(atlas::math::Point center, float radius) :
     mCentre{ center }, mRadius{ radius }, mRadiusSqr{ radius * radius }
 {}
 
+std::vector<Point> Sphere::getBoundingBoxPoints()
+{
+    BoundingVolumeBox sphereBvb(mCentre + Vector{ mRadius, mRadius, mRadius });
+    sphereBvb.addVolumePoint(mCentre - Vector{ mRadius, mRadius, mRadius });
+    return sphereBvb.getBoundingBoxPoints();
+}
+
 bool Sphere::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     ShadeRec& sr) const
 {
@@ -551,9 +591,11 @@ bool Sphere::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
         sr.color = mColour;
         sr.t = t;
         sr.material = mMaterial;
+
+        return true;
     }
 
-    return intersect;
+    return false;
 }
 
 bool Sphere::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
@@ -604,7 +646,7 @@ bool Triangle::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     Vector barycentricCoords;
     bool intersect{ intersectRay(ray, t, barycentricCoords) };
 
-    if (t < sr.t)
+    if (intersect && t < sr.t)
     {
         glm::vec3 v2v0 = mV2 - mV0;
         glm::vec3 v1v0 = mV1 - mV0;
@@ -659,6 +701,14 @@ bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     tMin = t;
 
     return true;
+}
+
+std::vector<Point> Triangle::getBoundingBoxPoints()
+{
+    BoundingVolumeBox triangleBvb(mV0);
+    triangleBvb.addVolumePoint(mV1);
+    triangleBvb.addVolumePoint(mV2);
+    return triangleBvb.getBoundingBoxPoints();
 }
 
 bool Triangle::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
@@ -782,7 +832,7 @@ Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName, Vecto
             mMeshTriangles.push_back(Triangle{ v0.position, v1.position, v2.position,
                                                 v0.texCoord, v1.texCoord, v2.texCoord, });
 
-            if (!shape.materialIds.empty())
+            if (!shape.materialIds.empty() && shape.materialIds[i] != -1)
             {
                 mMeshTriangles[mMeshTriangles.size() - 1].setMaterial(
                     loadedMaterials[shape.materialIds[i]]);
@@ -878,7 +928,7 @@ bool Plane::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     float t{ std::numeric_limits<float>::max() };
     bool intersect{ intersectRay(ray, t) };
 
-    if (t < sr.t)
+    if (intersect && t < sr.t)
     {
         sr.normal = mNormal;
         sr.t = t;
@@ -1170,6 +1220,7 @@ Colour Specular::shade(ShadeRec& sr)
 
     Vector wo = normalize(-sr.ray.d);
     Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
+    
     size_t numLights = sr.world->lights.size();
 
     for (size_t i{ 0 }; i < numLights; ++i)
@@ -1306,6 +1357,51 @@ atlas::math::Vector Ambient::getDirection([[maybe_unused]] ShadeRec const& sr)
 atlas::math::Vector Ambient::getSourcePoint([[maybe_unused]] ShadeRec const& sr)
 {
     return atlas::math::Vector{ 0.0f };
+}
+
+Colour Ambient::L(ShadeRec& sr)
+{
+    glm::mat4 rotationMatrix = rotationMatToSpace(sr.normal);
+
+    float gridBlockSize = 1.0f / mOcclusionSamples;
+
+    float occlusionMaxSumDist = (mOcclusionRayDist * mOcclusionSamples * mOcclusionSamples);
+    float occludedDistance = occlusionMaxSumDist;
+
+    // Jittered
+    for (size_t x{ 0 }; x < mOcclusionSamples; x++)
+    {
+        for (size_t y{ 0 }; y < mOcclusionSamples; y++)
+        {
+            float sampleX = static_cast<float>(x) * gridBlockSize + (((double)rand() / RAND_MAX) * gridBlockSize);
+            float sampleY = static_cast<float>(y) * gridBlockSize + (((double)rand() / RAND_MAX) * gridBlockSize);
+            atlas::math::Ray<Vector> reflectedRay;
+            Vector r = sampleHemisphere(sampleX, sampleY);
+            r = rotationMatrix * glm::vec4{ r, 0 };
+            r = normalize(r);
+            reflectedRay.d = r;
+            reflectedRay.o = sr.ray(sr.t) + (0.01f * sr.normal);
+
+            ShadeRec rec{};
+            rec.world = sr.world;
+            rec.depth = sr.depth + 1;
+            rec.t = mOcclusionRayDist;
+
+            bool hit{false};
+            for (auto obj : rec.world->scene)
+            {
+                hit |= obj->hit(reflectedRay, rec);
+            }
+
+            if (hit)
+            {
+                occludedDistance -= (mOcclusionRayDist - rec.t);
+            }
+        }
+    }
+
+    float occlusionFactor = (occludedDistance / occlusionMaxSumDist);
+    return mRadiance * mColour * occlusionFactor * occlusionFactor;
 }
 
 // ***** Camera function members *****
@@ -1589,10 +1685,10 @@ int main()
 
     std::shared_ptr<BVHAccel> bvhAccel = std::make_shared<BVHAccel>();
 
-    std::optional<atlas::utils::ObjMesh> optObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
-   
-    std::shared_ptr<Textured> textureMaterial = std::make_shared<Textured>(optObjMesh.value().materials[0], "teapot");
-    textureMaterial->setAmbientReflection(0.7f);
+    std::optional<atlas::utils::ObjMesh> teapotObjMesh = atlas::utils::loadObjMesh(modelRoot + "/teapot/teapot.obj");
+
+    std::shared_ptr<Textured> teapotTexMaterial = std::make_shared<Textured>(teapotObjMesh.value().materials[0], "teapot");
+    teapotTexMaterial->setAmbientReflection(0.7f);
 
     std::shared_ptr<Specular> specular = std::make_shared <Specular>();
     specular->setDiffuseColour({ 0.9f, 0.1f, 0.4f });
@@ -1614,30 +1710,21 @@ int main()
     planeSpecular4->setDiffuseColour({ 0.1f, 1.0f, 0.1f });
     planeSpecular4->setAmbientReflection(1.0f);
 
-
     std::shared_ptr<Mirror> mirror = std::make_shared <Mirror>();
     mirror->setAmbientColour({ 0.753f, 0.753f, 0.753f });
-    mirror->setAmbientReflection(0.25f);
+    mirror->setAmbientReflection(0.0f);
 
     std::shared_ptr<Refraction> refract = std::make_shared <Refraction>();
 
     std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(   Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, 
                                                                         Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
-    BoundingVolumeBox triangleBvb1(triangle1->getV0Point());
-    triangleBvb1.addVolumePoint(triangle1->getV1Point());
-    triangleBvb1.addVolumePoint(triangle1->getV2Point());
-    triangleBvb1.addVolumePoint(triangle1->getV2Point() + Vector{0, 0, 1});
     triangle1->setMaterial(mirror);
 
     std::shared_ptr<Triangle> triangle2 = std::make_shared<Triangle>(Triangle{ Point{200, 0, 0}, Point{200, 0, 400}, Point{200, 400, 200},
                                                                         Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
-    BoundingVolumeBox triangleBvb2(triangle2->getV0Point());
-    triangleBvb2.addVolumePoint(triangle2->getV1Point());
-    triangleBvb2.addVolumePoint(triangle2->getV2Point());
-    triangleBvb2.addVolumePoint(triangle2->getV2Point() + Vector{ 0, 0, 1 });
-    triangle2->setMaterial(textureMaterial);
+    triangle2->setMaterial(teapotTexMaterial);
 
-    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-550,0,-150}, 100 });
+    std::shared_ptr<Sphere> sphere1 = std::make_shared<Sphere>(Sphere{ {-450,0,-350}, 100 });
     sphere1->setMaterial(specular);
 
     std::shared_ptr<Sphere> sphere2 = std::make_shared<Sphere>(Sphere{ {-350,0,300}, 100 });
@@ -1647,6 +1734,14 @@ int main()
 
     std::shared_ptr<Sphere> sphere4 = std::make_shared<Sphere>(Sphere{ {-250, 180, 150}, 100 });
     sphere4->setMaterial(refract);
+
+    std::shared_ptr<Sphere> sphere5 = std::make_shared<Sphere>(Sphere{ {-600,-50,-50}, 30 });
+    sphere5->setMaterial(planeSpecular4);
+    std::shared_ptr<Sphere> sphere6 = std::make_shared<Sphere>(Sphere{ {-620,-30,-90}, 50 });
+    sphere6->setMaterial(planeSpecular1);
+    std::shared_ptr<Sphere> sphere7 = std::make_shared<Sphere>(Sphere{ {-605,-20,-55}, 40 });
+    sphere7->setMaterial(planeSpecular2);
+
 
     std::shared_ptr<Plane> plane1 = std::make_shared<Plane>(Plane{ {0, -100, 0}, {0,1,0} });
     plane1->setMaterial(planeSpecular3);
@@ -1662,17 +1757,29 @@ int main()
     std::shared_ptr<Plane> plane6 = std::make_shared<Plane>(Plane{ {0,0,450}, {0,0,-1} });
     plane6->setMaterial(planeSpecular2);
 
-    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{40,0,-200} });
-    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-430,-100,400} });
-    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ optObjMesh.value(), "teapot", Vector{-150,400,200} });
+    std::shared_ptr<MultiMesh> multiMesh1 = std::make_shared<MultiMesh>(MultiMesh{ teapotObjMesh.value(), "teapot", Vector{40,0,-200} });
+    std::shared_ptr<MultiMesh> multiMesh2 = std::make_shared<MultiMesh>(MultiMesh{ teapotObjMesh.value(), "teapot", Vector{-430,-100,400} });
+    std::shared_ptr<MultiMesh> multiMesh3 = std::make_shared<MultiMesh>(MultiMesh{ teapotObjMesh.value(), "teapot", Vector{-150,500,200} });
 
-    bvhAccel->addShape(triangleBvb1.getBoundingBoxPoints(), triangle1);
-    bvhAccel->addShape(triangleBvb2.getBoundingBoxPoints(), triangle2);
+    bvhAccel->addShape(triangle1->getBoundingBoxPoints(), triangle1);
+    bvhAccel->addShape(triangle2->getBoundingBoxPoints(), triangle2);
     bvhAccel->addShape(multiMesh1->getBoundingBoxPoints(), multiMesh1);
     bvhAccel->addShape(multiMesh2->getBoundingBoxPoints(), multiMesh2);
     bvhAccel->addShape(multiMesh3->getBoundingBoxPoints(), multiMesh3);
 
-    bvhAccel->generateBVH();
+    // Specular sphere
+    bvhAccel->addShape(sphere1->getBoundingBoxPoints(), sphere1);
+    // Reflective sphere
+    bvhAccel->addShape(sphere2->getBoundingBoxPoints(), sphere2);
+    bvhAccel->addShape(sphere3->getBoundingBoxPoints(), sphere3);
+    // Transparent sphere
+    bvhAccel->addShape(sphere4->getBoundingBoxPoints(), sphere4);
+
+    bvhAccel->addShape(sphere5->getBoundingBoxPoints(), sphere5);
+    bvhAccel->addShape(sphere6->getBoundingBoxPoints(), sphere6);
+    bvhAccel->addShape(sphere7->getBoundingBoxPoints(), sphere7);
+
+    bvhAccel->generateBVH();    
     world->scene.push_back(plane1);
     world->scene.push_back(plane2);
     world->scene.push_back(plane3);
@@ -1680,9 +1787,7 @@ int main()
     world->scene.push_back(plane5);
     world->scene.push_back(plane6);
     world->scene.push_back(sphere1);
-    world->scene.push_back(sphere2);
-    world->scene.push_back(sphere3);
-    world->scene.push_back(sphere4);
+
     world->scene.push_back(bvhAccel);
 
     world->ambient = std::make_shared<Ambient>();
@@ -1727,20 +1832,6 @@ int main()
 
     float totalTime = timer.elapsed() - startTime;
     std::cout << "Running time is " << totalTime << std::endl;
-
-    /* save texture found in material
-    std::vector<Colour> imag;
-    std::shared_ptr<Textured> mat = std::static_pointer_cast<Textured>(world->scene[0]->getMaterial());
-    int texSize = 200;
-    for (int i = 0; i < texSize; i++)
-    {
-        for (int k = 0; k < texSize; k++)
-        {
-            imag.push_back(mat->mTexture.getColour({ static_cast<float>(i) / texSize, static_cast<float>(k) / texSize }));
-        }
-    }    
-    saveToFile("test.bmp", texSize, texSize, imag);
-    */
 
     return 0;
 }
