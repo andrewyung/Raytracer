@@ -1786,7 +1786,6 @@ int main()
     world->scene.push_back(plane4);
     world->scene.push_back(plane5);
     world->scene.push_back(plane6);
-    world->scene.push_back(sphere1);
 
     world->scene.push_back(bvhAccel);
 
