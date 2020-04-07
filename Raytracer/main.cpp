@@ -1739,7 +1739,7 @@ int main()
     sphere5->setMaterial(planeSpecular4);
     std::shared_ptr<Sphere> sphere6 = std::make_shared<Sphere>(Sphere{ {-620,-30,-90}, 50 });
     sphere6->setMaterial(planeSpecular1);
-    std::shared_ptr<Sphere> sphere7 = std::make_shared<Sphere>(Sphere{ {-605,-20,-55}, 40 });
+    std::shared_ptr<Sphere> sphere7 = std::make_shared<Sphere>(Sphere{ {-585,-20,-55}, 40 });
     sphere7->setMaterial(planeSpecular2);
 
 
