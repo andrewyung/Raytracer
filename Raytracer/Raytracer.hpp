@@ -635,6 +635,6 @@ public:
 
     Colour L(ShadeRec& sr) override;
 private:
-    unsigned int mOcclusionSamples = 4; // n x n
+    unsigned int mOcclusionSamples = 8; // n x n
     float mOcclusionRayDist = 1000;
 };
