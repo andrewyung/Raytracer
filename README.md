@@ -4,9 +4,15 @@
 
 ### Implementations
 Multithreading (Job based with a thread pool)
+
 BVH
+
 Mirror reflections
+
 Transparency
+
 Texture mapping
+
 Shadows
+
 Ambient occlusion (jittered)
