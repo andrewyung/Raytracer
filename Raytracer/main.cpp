@@ -78,7 +78,7 @@ float Material::shadowed(ShadeRec const& sr, std::shared_ptr<Light> const& light
 // ***** ThreadPool function members *****    
 
 ThreadPool::ThreadPool(unsigned int const& numThreads)
-    : mTerminatePool(false)
+    : mTerminatePool(false), mJobsRunning(0)
 {
     for (size_t i{ 0 }; i < numThreads; i++)
     {
