@@ -47,7 +47,8 @@ class Mesh;
 class Sampler;
 class BoundingVolumeBox;
 
-static std::string modelRoot{ "C:/Users/Andrew/Documents/GitHub/Raytracer/Raytracer/Raytracer/models/" };
+// Path of where models are located
+static std::string modelRoot{ "C:/Users/Andrew/Documents/GitHub/Raytracer/models/" };
 static const int maxBounceDepth = 3;
 static const int lightAttenuationFactor = 500000;
 
@@ -635,6 +636,6 @@ public:
 
     Colour L(ShadeRec& sr) override;
 private:
-    unsigned int mOcclusionSamples = 8; // n x n
+    unsigned int mOcclusionSamples = 4; // n x n
     float mOcclusionRayDist = 1000;
 };

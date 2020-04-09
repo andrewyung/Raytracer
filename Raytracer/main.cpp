@@ -101,7 +101,7 @@ void ThreadPool::loopFunction()
             mQueue.pop();
         }
         mJobsRunning++;
-        Job(); 
+        Job();
         if (--mJobsRunning == 0 && mQueue.empty()) {
             mComplCondition.notify_one();
         }
@@ -174,10 +174,9 @@ ColourAlpha ImageTexture::getColour(Vector2 uv)
 {
     if (mSet)
     {
-        int x = floor(uv.x * (mWidth));
-        int y = floor(uv.y * (mHeight));
+        int x = static_cast<int>(floor(uv.x * (mWidth)));
+        int y = static_cast<int>(floor(uv.y * (mHeight)));
 
-        unsigned bytePerPixel = mChannels;
         unsigned char* pixelOffset = mImage + (x + (mHeight * y)) * mChannels;
         unsigned char r = pixelOffset[0];
         unsigned char g = pixelOffset[1];
@@ -191,8 +190,8 @@ ColourAlpha ImageTexture::getColour(Vector2 uv)
 // ***** BoundingVolumeBox *****
 BoundingVolumeBox::BoundingVolumeBox(Vector const& startPoint)
     : mXLeftPlane(Plane{ startPoint, {1,0,0} }), mXRightPlane(Plane{ startPoint, { 1,0,0 } }),
-      mYLeftPlane(Plane{ startPoint, {0,1,0} }), mYRightPlane(Plane{ startPoint, { 0,1,0 } }),
-      mZLeftPlane(Plane{ startPoint, {0,0,1} }), mZRightPlane(Plane{ startPoint, { 0,0,1 } })
+    mYLeftPlane(Plane{ startPoint, {0,1,0} }), mYRightPlane(Plane{ startPoint, { 0,1,0 } }),
+    mZLeftPlane(Plane{ startPoint, {0,0,1} }), mZRightPlane(Plane{ startPoint, { 0,0,1 } })
 {}
 
 void BoundingVolumeBox::addVolumePoint(Point const& point)
@@ -238,7 +237,7 @@ void BoundingVolumeBox::updateMinMaxCentroid()
     zMin = mZLeftPlane.getPoint().z;
     zMax = mZRightPlane.getPoint().z;
 
-    mCentroid = {   (xMin + xMax) / 2.0f,
+    mCentroid = { (xMin + xMax) / 2.0f,
                     (yMin + yMax) / 2.0f,
                     (zMin + zMax) / 2.0f, };
 }
@@ -303,7 +302,7 @@ Point BoundingVolumeBox::getCentroid()
 
 std::vector<Point> BoundingVolumeBox::getBoundingBoxPoints()
 {
-    return {    mXLeftPlane.getPoint(),
+    return { mXLeftPlane.getPoint(),
                 mXRightPlane.getPoint(),
                 mYLeftPlane.getPoint(),
                 mYRightPlane.getPoint(),
@@ -341,14 +340,14 @@ void BVHAccel::addShape(std::vector<Point> boundingBoxPoints, std::shared_ptr<Sh
 
 void BVHAccel::generateBVH()
 {
-    int leaves = mHeirarchy.size();
-    int nextLayerLeaves = ceil(leaves / 2.0f);
+    size_t leaves = mHeirarchy.size();
+    size_t nextLayerLeaves = static_cast<size_t>(ceil(leaves / 2.0f));
 
     // Find nearest extents
     while (leaves != 1)
     {
-        int layerEndRange = mHeirarchy.size();
-        int layerStartRange = mHeirarchy.size() - leaves;
+        int layerEndRange = static_cast<int>(mHeirarchy.size());
+        int layerStartRange = static_cast<int>(mHeirarchy.size() - leaves);
         for (size_t y{ 0 }; y < nextLayerLeaves; y++)
         {
             // find closest bounds
@@ -398,13 +397,13 @@ void BVHAccel::generateBVH()
                 BoundingVolumeBox leaf1Box = mHeirarchy[leaf1Index].nodeBvb;
                 BoundingVolumeBox leaf2Box = mHeirarchy[leaf2Index].nodeBvb;
                 BoundingVolumeBox newBoundVolBox(leaf1Box.getBoundingBoxPoints()[0]);
-                for (size_t k{ 1 }; k < leaf1Box.getBoundingBoxPoints().size(); k++)
+                for (size_t m{ 1 }; m < leaf1Box.getBoundingBoxPoints().size(); m++)
                 {
-                    newBoundVolBox.addVolumePoint(leaf1Box.getBoundingBoxPoints()[k]);
+                    newBoundVolBox.addVolumePoint(leaf1Box.getBoundingBoxPoints()[m]);
                 }
-                for (size_t k{ 0 }; k < leaf2Box.getBoundingBoxPoints().size(); k++)
+                for (size_t m{ 0 }; m < leaf2Box.getBoundingBoxPoints().size(); m++)
                 {
-                    newBoundVolBox.addVolumePoint(leaf2Box.getBoundingBoxPoints()[k]);
+                    newBoundVolBox.addVolumePoint(leaf2Box.getBoundingBoxPoints()[m]);
                 }
                 BVHNode combinedNode{ newBoundVolBox };
                 combinedNode.leaf = false;
@@ -419,7 +418,7 @@ void BVHAccel::generateBVH()
         }
 
         leaves = nextLayerLeaves;
-        nextLayerLeaves = ceil(leaves / 2.0f);
+        nextLayerLeaves = static_cast<size_t>(ceil(leaves / 2.0f));
     }
 }
 
@@ -470,8 +469,8 @@ bool BVHAccel::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     return intersects;
 }
 
-bool BVHAccel::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
-    float& tMin) const
+bool BVHAccel::intersectRay([[maybe_unused]] atlas::math::Ray<atlas::math::Vector> const& ray,
+    [[maybe_unused]] float& tMin) const
 {
     return false;
 }
@@ -504,7 +503,7 @@ std::shared_ptr<Material> Shape::getMaterial() const
 Sampler::Sampler(int numSamples, int numSets) :
     mNumSamples{ numSamples }, mNumSets{ numSets }, mCount{ 0 }, mJump{ 0 }
 {
-    mSamples.reserve(mNumSets * mNumSamples);
+    mSamples.reserve(mNumSets* mNumSamples);
     setupShuffledIndices();
 }
 
@@ -750,7 +749,7 @@ MultiMesh::MultiMesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirN
             std::make_shared<Textured>(mesh.materials[i], modelSubDirName));
     }
     // Go through each shape
-    for (size_t i{ 0 }; i < mesh.shapes.size(); i++)
+    for (unsigned int i{ 0 }; i < mesh.shapes.size(); i++)
     {
         meshes.push_back(Mesh(mesh.shapes[i], i, loadedMaterials, modelSubDirName, offset));
     }
@@ -790,8 +789,8 @@ bool MultiMesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     return intersected;
 }
 
-bool MultiMesh::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
-    float& tMin) const
+bool MultiMesh::intersectRay([[maybe_unused]] atlas::math::Ray<atlas::math::Vector> const& ray,
+    [[maybe_unused]] float& tMin) const
 {
     return false;
 }
@@ -813,13 +812,13 @@ Mesh::Mesh(atlas::utils::ObjMesh const& mesh, std::string modelSubDirName, Vecto
             std::make_shared<Textured>(mesh.materials[i], modelSubDirName));
     }
     // Go through each shape
-    for (size_t i{ 0 }; i < mesh.shapes.size(); i ++)
+    for (size_t i{ 0 }; i < mesh.shapes.size(); i++)
     {
         atlas::utils::Shape shape = mesh.shapes[i];
 
         // Check if number of indices are summable by 3
         if (shape.indices.size() % 3 != 0) return;
-        
+
         // Go through each triangle in shape
         for (size_t k{ 0 }; k < mesh.shapes[i].indices.size() - 2; k += 3)
         {
@@ -912,8 +911,8 @@ bool Mesh::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
     return intersected;
 }
 
-bool Mesh::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
-    float& tMin) const
+bool Mesh::intersectRay([[maybe_unused]] atlas::math::Ray<atlas::math::Vector> const& ray,
+    [[maybe_unused]] float& tMin) const
 {
     return false;
 }
@@ -944,7 +943,7 @@ bool Plane::hit(atlas::math::Ray<atlas::math::Vector> const& ray,
 bool Plane::intersectRay(atlas::math::Ray<atlas::math::Vector> const& ray,
     float& tMin) const
 {
-    float denom = glm::dot(mNormal, ray.d); 
+    float denom = glm::dot(mNormal, ray.d);
     if (abs(denom) < 0.00001f) return false;
 
     float t = (glm::dot((mPoint - ray.o), mNormal) / denom);
@@ -1008,8 +1007,8 @@ void Jitter::generateSamples()
             for (int q = 0; q < n; ++q)
             {
                 mSamples.push_back(
-                    atlas::math::Point{ q * gridSize + (static_cast<float>(rand()) / RAND_MAX * gridSize), 
-                                        p * gridSize + (static_cast<float>(rand()) / RAND_MAX * gridSize), 
+                    atlas::math::Point{ q * gridSize + (static_cast<float>(rand()) / RAND_MAX * gridSize),
+                                        p * gridSize + (static_cast<float>(rand()) / RAND_MAX * gridSize),
                                         0.0f });
             }
         }
@@ -1036,7 +1035,7 @@ void Random::generateSamples()
 }
 
 // ***** Lambertian function members *****
-Lambertian::Lambertian() : mDiffuseColour{1,1,1}, mDiffuseReflection{0.5f}
+Lambertian::Lambertian() : mDiffuseColour{ 1,1,1 }, mDiffuseReflection{ 0.5f }
 {}
 
 Lambertian::Lambertian(Colour diffuseColor, float diffuseReflection) :
@@ -1071,7 +1070,7 @@ void Lambertian::setDiffuseColour(Colour const& colour)
 // ***** SpecularReflection function members *****
 SpecularReflection::SpecularReflection()
     : mSpecularColour({ 1,1,1 }), mSpecularCofficient(0.3f), mSpecularExp(16)
-{}    
+{}
 
 void SpecularReflection::setSpecularCoefficient(float kd)
 {
@@ -1105,8 +1104,8 @@ Colour SpecularReflection::fn(ShadeRec const& sr,
     return L;
 }
 
-Colour SpecularReflection::rho(ShadeRec const& sr,
-    atlas::math::Vector const& reflected) const
+Colour SpecularReflection::rho([[maybe_unused]] ShadeRec const& sr,
+    [[maybe_unused]] atlas::math::Vector const& reflected) const
 {
     return { 0,0,0 };
 }
@@ -1220,7 +1219,7 @@ Colour Specular::shade(ShadeRec& sr)
 
     Vector wo = normalize(-sr.ray.d);
     Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
-    
+
     size_t numLights = sr.world->lights.size();
 
     for (size_t i{ 0 }; i < numLights; ++i)
@@ -1233,7 +1232,7 @@ Colour Specular::shade(ShadeRec& sr)
         if (nDotWi > 0.0f)
         {
             L += mDiffuseBRDF->fn(sr, wo, wi) * sr.world->lights[i]->L(sr) *
-               nDotWi * shadowAttenuation;
+                nDotWi * shadowAttenuation;
             L += mSpecularBRDF->fn(sr, wo, wi) * shadowAttenuation;
         }
     }
@@ -1246,10 +1245,10 @@ Colour Specular::shade(ShadeRec& sr)
 
 
 // ***** Textured function members ***** 
-Textured::Textured(tinyobj::material_t const& material, std::string const& modelSubDirName) 
-    :   mTexture(ImageTexture{ modelRoot + modelSubDirName + "/" + material.diffuse_texname }),
-        mAmbientBRDF{ std::make_shared<Lambertian>()},
-        mSpecularBRDF{ std::make_shared<SpecularReflection>()}
+Textured::Textured(tinyobj::material_t const& material, std::string const& modelSubDirName)
+    : mTexture(ImageTexture{ modelRoot + modelSubDirName + "/" + material.diffuse_texname }),
+    mAmbientBRDF{ std::make_shared<Lambertian>() },
+    mSpecularBRDF{ std::make_shared<SpecularReflection>() }
 {}
 
 void Textured::setSpecularReflection(float ks)
@@ -1329,10 +1328,10 @@ atlas::math::Vector Directional::getSourcePoint([[maybe_unused]] ShadeRec const&
 
 // ***** PointLight function members *****
 PointLight::PointLight()
-    :   mPoint({ 0,0,0 })
+    : mPoint({ 0,0,0 })
 {}
 PointLight::PointLight(Point const& p)
-    :   mPoint(p)
+    : mPoint(p)
 {}
 
 atlas::math::Vector PointLight::getDirection([[maybe_unused]] ShadeRec const& sr)
@@ -1373,8 +1372,8 @@ Colour Ambient::L(ShadeRec& sr)
     {
         for (size_t y{ 0 }; y < mOcclusionSamples; y++)
         {
-            float sampleX = static_cast<float>(x) * gridBlockSize + (((double)rand() / RAND_MAX) * gridBlockSize);
-            float sampleY = static_cast<float>(y) * gridBlockSize + (((double)rand() / RAND_MAX) * gridBlockSize);
+            float sampleX = static_cast<float>(x) * gridBlockSize + static_cast<float>(((double)rand() / RAND_MAX) * gridBlockSize);
+            float sampleY = static_cast<float>(y) * gridBlockSize + static_cast<float>(((double)rand() / RAND_MAX) * gridBlockSize);
             atlas::math::Ray<Vector> reflectedRay;
             Vector r = sampleHemisphere(sampleX, sampleY);
             r = rotationMatrix * glm::vec4{ r, 0 };
@@ -1387,7 +1386,7 @@ Colour Ambient::L(ShadeRec& sr)
             rec.depth = sr.depth + 1;
             rec.t = mOcclusionRayDist;
 
-            bool hit{false};
+            bool hit{ false };
             for (auto obj : rec.world->scene)
             {
                 hit |= obj->hit(reflectedRay, rec);
@@ -1428,9 +1427,9 @@ void Camera::calculateRay(float x, float y, atlas::math::Ray<Vector>& ray) const
 Reflective::Reflective()
 {}
 
-Colour Reflective::fn(ShadeRec const& sr,
-    atlas::math::Vector const& reflected,
-    atlas::math::Vector const& incoming) const
+Colour Reflective::fn([[maybe_unused]] ShadeRec const& sr,
+    [[maybe_unused]] atlas::math::Vector const& reflected,
+    [[maybe_unused]] atlas::math::Vector const& incoming) const
 {
     return { 0,0,0 };
 }
@@ -1449,7 +1448,7 @@ Colour Reflective::rho(ShadeRec const& sr,
 
     ShadeRec rec{};
     rec.world = sr.world;
-    rec.depth = sr.depth + 1; 
+    rec.depth = sr.depth + 1;
     rec.t = std::numeric_limits<float>::max();
 
     bool hit{};
@@ -1489,9 +1488,9 @@ Colour Mirror::shade(ShadeRec& sr)
 {
     Vector wo = normalize(-sr.ray.d);
     Colour L = mAmbientBRDF->rho(sr, wo) * sr.world->ambient->L(sr);
-   
+
     L += mReflectiveBRDF->rho(sr, wo);
-    
+
     size_t numLights = sr.world->lights.size();
 
     for (size_t i{ 0 }; i < numLights; ++i)
@@ -1513,18 +1512,18 @@ Colour Mirror::shade(ShadeRec& sr)
 
 // ****** Transparency function members ******
 Transparency::Transparency(float instalRefraction)
-    :   mIndexOfRefraction{ instalRefraction }
+    : mIndexOfRefraction{ instalRefraction }
 {}
 
-Colour Transparency::fn(ShadeRec const& sr,
-    atlas::math::Vector const& reflected,
-    atlas::math::Vector const& incoming) const
+Colour Transparency::fn([[maybe_unused]] ShadeRec const& sr,
+    [[maybe_unused]] atlas::math::Vector const& reflected,
+    [[maybe_unused]] atlas::math::Vector const& incoming) const
 {
     return { 0,0,0 };
 }
 
-Colour Transparency::rho(ShadeRec const& sr,
-    atlas::math::Vector const& reflected) const
+Colour Transparency::rho([[maybe_unused]] ShadeRec const& sr,
+    [[maybe_unused]] atlas::math::Vector const& reflected) const
 {
     if (sr.depth > maxBounceDepth) return sr.color;
 
@@ -1571,13 +1570,13 @@ Vector Transparency::refraction(ShadeRec const& sr, float& enterIndexOfRefract) 
     Vector n = sr.normal;
 
     // Is ray going into or out of volume
-    if (cosi < 0) 
-    { 
-        cosi = -cosi; 
+    if (cosi < 0)
+    {
+        cosi = -cosi;
     }
-    else 
-    { 
-        n = -sr.normal; 
+    else
+    {
+        n = -sr.normal;
     }
     float eta = sr.indexOfRefraction / enterIndexOfRefract;
     float k = 1 - eta * eta * (1 - cosi * cosi);
@@ -1630,7 +1629,7 @@ void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Ca
         for (int c{ beginBlockX }; c < endBlockX; ++c)
         {
             Colour pixelAverage{ 0, 0, 0 };
-            
+
             for (int j = 0; j < world->sampler->getNumSamples(); ++j)
             {
                 ShadeRec trace_data{};
@@ -1654,22 +1653,22 @@ void raytrace(int beginBlockY, int endBlockY, int beginBlockX, int endBlockX, Ca
                 }
             }
 
-            world->image[(r * world->height) + c] = {   pixelAverage.r * avg,
+            world->image[(r * world->height) + c] = { pixelAverage.r * avg,
                                                         pixelAverage.g * avg,
                                                         pixelAverage.b * avg };
 
         }
     }
-    PrintThread{} <<    "y: " << beginBlockY << "-" << endBlockY <<
-                        "x: " << beginBlockX << "-" << endBlockX << 
-                        " on thread: " << std::this_thread::get_id() << std::endl;
+    PrintThread{} << "y: " << beginBlockY << "-" << endBlockY <<
+        "x: " << beginBlockX << "-" << endBlockX <<
+        " on thread: " << std::this_thread::get_id() << std::endl;
 }
 
 int main()
 {
     using atlas::core::Timer;
-    Timer<float> timer; 
-    timer.start();       
+    Timer<float> timer;
+    timer.start();
     float startTime = timer.elapsed();
 
     using atlas::math::Point;
@@ -1716,7 +1715,7 @@ int main()
 
     std::shared_ptr<Refraction> refract = std::make_shared <Refraction>();
 
-    std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(   Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300}, 
+    std::shared_ptr<Triangle> triangle1 = std::make_shared<Triangle>(Triangle{ Point{-200, 0, -300}, Point{200, 0, -300}, Point{0, 400, -300},
                                                                         Vector2{0.0f,0.0f}, Vector2{1.0f,0.0f}, Vector2{0.5f,1.0f} });
     triangle1->setMaterial(mirror);
 
@@ -1779,7 +1778,7 @@ int main()
     bvhAccel->addShape(sphere6->getBoundingBoxPoints(), sphere6);
     bvhAccel->addShape(sphere7->getBoundingBoxPoints(), sphere7);
 
-    bvhAccel->generateBVH();    
+    bvhAccel->generateBVH();
     world->scene.push_back(plane1);
     world->scene.push_back(plane2);
     world->scene.push_back(plane3);
@@ -1807,14 +1806,14 @@ int main()
 
     world->image = std::vector<Colour>(world->height * world->width, Colour{ 0,0,0 });
 
-    unsigned int gridN = 40;
+    int gridN = 40;
     // Split image into grid and assign to thread
-    for (size_t y{ 0 }; y < gridN; y++)
+    for (int y{ 0 }; y < gridN; y++)
     {
-        for (size_t x{ 0 }; x < gridN; x++)
+        for (int x{ 0 }; x < gridN; x++)
         {
-            int columnUnitSize = world->width / gridN;
-            int rowUnitSize = world->height / gridN;
+            int columnUnitSize = static_cast<int>(world->width / gridN);
+            int rowUnitSize = static_cast<int>(world->height / gridN);
 
             int beginY = y * rowUnitSize;
             int endY = beginY + rowUnitSize;
